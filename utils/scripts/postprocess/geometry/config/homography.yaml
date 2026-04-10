@@ -1,0 +1,9 @@
+config:
+  Enable: True
+  confidence_threshold: 0.8
+
+mqtt:
+  broker: "localhost"
+  port: 1883
+  input_topic: "oc4/pose"
+  output_topic: "oc4/pose_real"

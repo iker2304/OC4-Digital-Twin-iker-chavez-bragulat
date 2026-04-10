@@ -1,0 +1,12 @@
+config:
+  enable: True
+  confidence_threshold: 0.5
+  
+path:
+  3D_points: "/utils/3D_points/3D_points.json"
+  intrinsic_matrix: "../../../../data/interim/Iphone 16 Pro Max Photos/calibration.json"
+
+mqtt:
+  broker: "localhost"
+  port: 1883
+  topic: "oc4/pose" 

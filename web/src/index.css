@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  --color-primary: #1e3a8a;
+  --color-secondary: #f3f4f6;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+
+  --app-bg: #f9fafb;
+  --app-fg: #111827;
+  --chart-grid: #d1d5db;
+  --chart-axis: #6b7280;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: #e5e7eb;
+  --chart-tooltip-fg: #111827;
+}
+
+.dark {
+  --app-bg: #111827;
+  --app-fg: rgba(255, 255, 255, 0.87);
+  --chart-grid: #374151;
+  --chart-axis: #9ca3af;
+  --chart-tooltip-bg: #1f2937;
+  --chart-tooltip-border: #374151;
+  --chart-tooltip-fg: #f3f4f6;
+}
+
+@theme {
+  --color-primary: var(--color-primary);
+  --color-secondary: var(--color-secondary);
+  --color-success: var(--color-success);
+  --color-danger: var(--color-danger);
+}
+
+html,
+body {
+  background-color: var(--app-bg);
+  color: var(--app-fg);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Pipeline Editor Styles */
+.pipeline-node {
+  user-select: none;
+}
+
+.dark .pipeline-node > div {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(30, 41, 59, 0.85)) !important;
+}
+
+.dark .pipeline-node .text-gray-500 {
+  color: #94a3b8;
+}
+
+.dark .pipeline-node .bg-gray-100 {
+  background-color: rgba(51, 65, 85, 0.6);
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+}
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── React Flow overrides ── */
+.react-flow__controls button {
+  background: var(--card-bg, white);
+  border: 1px solid var(--border-color, #e5e7eb);
+  color: #6b7280;
+}
+.react-flow__controls button:hover {
+  background: #f9fafb;
+}
+.react-flow__minimap {
+  background: var(--card-bg, white) !important;
+  border-radius: 12px;
+}
+.dark .react-flow__controls button {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+.dark .react-flow__minimap {
+  background: #1e293b !important;
+}
+.react-flow__edge-path {
+  stroke: #6366f1;
+}
+.react-flow__handle {
+  transition: transform 0.15s ease;
+}
+.react-flow__handle:hover {
+  transform: translateY(-50%) scale(1.3) !important;
+}
+
+/* ── react-grid-layout overrides ── */
+.react-grid-item.react-draggable-dragging {
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 0 0 2px #8b5cf6 !important;
+  z-index: 100;
+  cursor: grabbing;
+}
+.react-grid-item > .react-resizable-handle::after {
+  border-color: #8b5cf650;
+}
+.react-grid-placeholder {
+  background: #8b5cf620 !important;
+  border: 2px dashed #8b5cf660 !important;
+  border-radius: 16px !important;
+}

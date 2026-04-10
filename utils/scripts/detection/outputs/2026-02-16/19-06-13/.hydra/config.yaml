@@ -1,0 +1,31 @@
+detection:
+  paths:
+    models: data\models\CV\pose\train_1\weights\best.pt
+    output: results/detections
+  source: 2
+  show_boxes: true
+  conf: 0.5
+  iou: 0.7
+  save: true
+  show: true
+  save_csv: true
+  csv_filename: keypoints.csv
+homography:
+  enabled: true
+mqtt:
+  enabled: true
+  broker: localhost
+  port: 1883
+  topic: oc4/pose
+config:
+  camera_id: 0
+pnp:
+  enabled: true
+  config:
+    confidence_threshold: 0.2
+  paths:
+    points_3d: utils/scripts/postprocess/geometry/utils/3D_points/3D_points.json
+    intrinsic_matrix: data/interim/Iphone 16 Pro Max (Vertical)/calibration img/calibration.json
+orientation:
+  enabled: true
+  units: m

@@ -1,0 +1,74 @@
+randomization:
+  camera: 
+    enabled: True
+    radius: [1, 7] # Increased radius to ensure the object fits in frame (1.77m tall)
+    phi_range: [0.1, 1.7] # Elevation constraints (0=top, 1.57=horizon, >1.57=below). Limit to ~97 degrees.
+    theta_range: [0.0, 6.28] # Full 360 azimuth
+    horizontal_shift:
+      enabled: True
+      range: [-0.3, 0.3] # Camera sensor shift_x (Horizontal skew in image)
+  lights:
+    enabled: True
+    name: 'Light'
+    type: ["SUN", "POINT", "SPOT", "AREA"]
+    num: [1, 4] # Number of light to randomize
+    radius: [4, 20] # Radius of the random position of the light
+    energy_sun: [0.5, 8] # Energy of the SUN light
+    energy_else: [200, 3000] # Energy of the other types of lights
+  background:
+    enabled: True
+    path: 'data/backgrounds/COCO'
+  position:
+    enabled: True
+  platform:
+    enabled: True
+    parts:
+      blade: ['Blade v6:1', 'Blade v6:2', 'Blade v6:3']
+  intrinsic_matrix:
+    enabled: False   
+    focal_length_x: [24, 60] 
+    focal_length_y: [24, 60] 
+    skew_coefficient: [0, 0] 
+    principal_point_x: [0.48, 0.52] 
+    principal_point_y: [0.48, 0.52] 
+    fixed:
+      focal_length_x: 35.0
+      focal_length_y: 35.0
+      principal_point_x: 0.5
+      principal_point_y: 0.5
+
+  compositor:
+    enabled: True
+    burn:
+      enabled: True
+      probability: 0.6 
+      exposure:
+        low: 0.5 
+        high: 5.0 
+    distortion:
+      enabled: False
+      probability: 0.5
+      distort: [0.0, 0.4] # Lens distortion amount
+      dispersion: [0.0, 0.05] # Chromatic aberration amount
+    blur:
+      enabled: True
+      probability: 0.6 
+      size_x: [5, 30] 
+      size_y: [5, 30]
+
+  surface_defects:
+    enabled: True
+    mix_factor: [0.3, 0.7] # Significantly increased for exaggeration
+    noise_scale: [2.0, 40.0] # Lower min scale for larger blotches
+    distortion: [0.1, 1.5] # Reduced distortion as requested
+    mapping_shift: [-10.0, 10.0] 
+    
+  cracks:
+    enabled: True
+    scale: [5.0, 25.0] # Larger cracks (lower scale)
+    randomness: [0.9, 1.0] 
+    bump_strength: [1.0, 3.0] # Very deep cracks
+
+  annotation:
+    method: "json_coords" # Options: "center_of_mass", "json_coords"
+    json_path: "data/models/blender/config/keypoints.json"

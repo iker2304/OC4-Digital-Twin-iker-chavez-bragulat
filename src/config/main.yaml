@@ -1,0 +1,11 @@
+defaults:
+  - blender
+  - randomization
+  - annotation
+  - _self_
+
+synthetic_dataset: 
+  path: 'data/synthetic_dataset/bbox'
+
+config:
+  Enable_pose: True

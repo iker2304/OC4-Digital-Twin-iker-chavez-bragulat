@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # 1. Database
+  influxdb:
+    image: influxdb:2
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin   
+      - DOCKER_INFLUXDB_INIT_ORG=OC4
+      - DOCKER_INFLUXDB_INIT_BUCKET=OC4
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=admin
+
+  # 2. Visualizer
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    links:
+      - influxdb
+    environment:
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SECURITY_COOKIE_SAMESITE=none 
+
+volumes:
+  influxdb_data:

@@ -1,0 +1,8 @@
+hydra-core
+omegaconf
+tqdm
+ultralytics
+FreeSimpleGUI
+huggingface_hub 
+influxdb-client
+paho-mqtt

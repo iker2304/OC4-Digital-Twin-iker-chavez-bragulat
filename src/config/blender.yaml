@@ -1,0 +1,31 @@
+blender: 
+  config: 
+    num_renders: 30000 # Number of images to render
+    resolution_x: 1280 # Resolution of the image in pixels
+    resolution_y: 1280 # Resolution of the image in pixels
+  scene: 
+    camera:
+      load: 'Camera' # Camera name in Blender
+    object:
+      Hub: 'Hub'
+      load: 'assembly v5' # Object name in Blender
+      blend_path: 'data/models/blender/OC4.blend'
+      fbx_path: 'data/models/fbx/OC4.fbx'
+      scale: 0.004 # Scale of the object
+      color: 
+        random: True # Color randomization of the object
+      classes:
+         blade: 0
+         body: 1
+         pontoon: 2
+         tower: 3
+    lights:
+      name: 'Light'
+      type: ["SUN", "POINT", "SPOT", "AREA"]
+      num: [1, 4] # Number of lights to randomize
+      radius: [4, 20] # Radius of the random position of the light
+      energy_sun: [0.5, 8] # Energy of the SUN light
+      energy_else: [200, 3000] # Energy of the other types of lights
+    background:
+      enable: True
+      path: 'data/backgrounds/COCO'

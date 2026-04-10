@@ -1,0 +1,27 @@
+{
+  "refreshRateMs": 250,
+  "maxPoints": 120,
+  "thresholds": {
+    "warning": 70,
+    "critical": 90
+  },
+  "colorScale": {
+    "low": "#10b981",
+    "mid": "#f59e0b",
+    "high": "#ef4444"
+  },
+  "normalization": {
+    "min": 0,
+    "max": 1,
+    "logScaleOrderThreshold": 2,
+    "epsilon": 0.000001
+  },
+  "heatmap": {
+    "columns": 24,
+    "legendTicks": 5
+  },
+  "fit": {
+    "paddingPercent": 0.06,
+    "minimumPadding": 0.01
+  }
+}

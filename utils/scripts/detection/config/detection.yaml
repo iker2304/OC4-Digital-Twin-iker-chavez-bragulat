@@ -1,0 +1,41 @@
+detection:
+  paths:
+    models: 'data\models\CV\pose\train_1\weights\best.pt'
+    output: "results/detections"      
+
+  source: 0 #"data/utils/oc4_nt2.mp4"
+  
+  show_boxes: True
+
+  conf: 0.5
+  iou: 0.7
+  save: True      
+  show: True      
+  save_csv: True
+  csv_filename: "keypoints.csv"
+  recording_speed: 1.0
+  recording_fps: 0 # 0 means auto-detect from source
+
+homography:
+  enabled: True
+
+mqtt:
+  enabled: True
+  broker: "localhost"
+  port: 1883
+  topic: "oc4/pose"
+
+config:
+  camera_id: 0
+
+pnp:
+  enabled: True
+  config:
+    confidence_threshold: 0.2
+  paths:
+    points_3d: "utils/scripts/postprocess/geometry/utils/3D_points/3D_points.json"
+    intrinsic_matrix: "data/interim/Iphone 16 Pro Max (Vertical)/calibration img/calibration.json"
+
+orientation:
+  enabled: True
+  units: "m"

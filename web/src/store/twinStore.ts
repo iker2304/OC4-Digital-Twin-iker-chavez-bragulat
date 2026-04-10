@@ -1,0 +1,228 @@
+import { create } from 'zustand';
+import type { TwinConfigUpdate, TwinState } from '../types';
+import { StructuralEngine, type StructuralAnalysisResult, type EnvironmentalConditions, type PlatformState } from '../physics/StructuralEngine';
+
+// Initialize Physics Engine
+const physicsEngine = new StructuralEngine();
+
+// Default Environmental Conditions (can be updated from weather API)
+const DEFAULT_ENV: EnvironmentalConditions = {
+    windSpeed: 12, // m/s (Rated wind speed for NREL 5MW)
+    waveHeight: 2.5, // m
+    currentSpeed: 0.5 // m/s
+};
+
+interface StructuralHistory {
+    timestamp: number;
+    mooringTension: number; // Total horizontal force or max line tension
+    towerStress: number; // Max stress MPa
+    fatigueLife: number; // % used
+}
+
+interface TwinStore extends TwinState {
+  isConnected: boolean;
+  connect: () => void;
+  disconnect: () => void;
+  setTwinData: (data: Partial<TwinState>) => void;
+  updateConfig: (config: TwinConfigUpdate) => void;
+  cameraSource: number | string;
+  setCameraSource: (source: number | string) => void;
+  
+  // Environmental State
+  envConditions: EnvironmentalConditions;
+  setEnvConditions: (env: Partial<EnvironmentalConditions>) => void;
+
+  // Structural Analysis State
+  structural: StructuralAnalysisResult | null;
+  structuralHistory: StructuralHistory[];
+  
+  history: {
+    roll: { timestamp: number; value: number }[];
+    pitch: { timestamp: number; value: number }[];
+    yaw: { timestamp: number; value: number }[];
+    x: { timestamp: number; value: number }[];
+    y: { timestamp: number; value: number }[];
+    z: { timestamp: number; value: number }[];
+  };
+}
+
+let socket: WebSocket | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let manualDisconnect = false;
+
+export const useTwinStore = create<TwinStore>((set, get) => ({
+  navigation: {
+    roll: 0,
+    pitch: 0,
+    yaw: 0,
+    position: { x: 0, y: 0, z: 0 },
+  },
+  pose: {
+    rvec: [0, 0, 0],
+    tvec: [0, 0, 0]
+  },
+  metrics: {
+    velocity: { x: 0, y: 0, z: 0 },
+    forces: { fx: 0, fy: 0, fz: 0 },
+    distances: { d1: 0, d2: 0, d3: 0 },
+  },
+  video: {
+    keypoints: [],
+    overlayData: {},
+  },
+  isConnected: false,
+  cameraSource: 0,
+  
+  envConditions: DEFAULT_ENV,
+  structural: null,
+  structuralHistory: [],
+  
+  history: {
+    roll: [],
+    pitch: [],
+    yaw: [],
+    x: [],
+    y: [],
+    z: [],
+  },
+
+  setEnvConditions: (env) => set((state) => ({ 
+      envConditions: { ...state.envConditions, ...env } 
+  })),
+
+  connect: () => {
+    if (socket) return;
+    manualDisconnect = false;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    
+    console.log('Connecting to WebSocket...');
+    socket = new WebSocket('ws://localhost:8080/ws/realtime');
+
+    socket.onopen = () => {
+      console.log('Connected');
+      set({ isConnected: true });
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const now = Date.now();
+        
+        // Prepare State for Physics Engine
+        const currentEnv = get().envConditions;
+        const platformState: PlatformState = {
+            surge: data.navigation.position.x,
+            sway: data.navigation.position.y, // Note: standard coord mapping check needed
+            heave: data.navigation.position.z,
+            roll: data.navigation.roll,
+            pitch: data.navigation.pitch,
+            yaw: data.navigation.yaw
+        };
+
+        // Run Structural Analysis
+        const mooring = physicsEngine.calculateMooringForces(platformState, currentEnv);
+        const tower = physicsEngine.calculateTowerStress(platformState, currentEnv);
+        const shm = physicsEngine.calculateSHM(platformState, tower);
+
+        const analysisResult: StructuralAnalysisResult = { mooring, tower, shm };
+
+        set((state) => ({
+          navigation: data.navigation,
+          metrics: data.metrics,
+          video: data.video,
+          pose: data.pose,
+          system: data.system,
+
+          structural: analysisResult,
+          structuralHistory: [...state.structuralHistory, {
+              timestamp: now,
+              mooringTension: mooring.totalHorizontalForce / 1000, // kN
+              towerStress: tower.maxStress,
+              fatigueLife: shm.fatigueLifeUsed
+          }].slice(-500),
+
+          history: {
+            roll: [...state.history.roll, { timestamp: now, value: data.navigation.roll }].slice(-100),
+            pitch: [...state.history.pitch, { timestamp: now, value: data.navigation.pitch }].slice(-100),
+            yaw: [...state.history.yaw, { timestamp: now, value: data.navigation.yaw }].slice(-100),
+            x: [...state.history.x, { timestamp: now, value: data.navigation.position.x }].slice(-100),
+            y: [...state.history.y, { timestamp: now, value: data.navigation.position.y }].slice(-100),
+            z: [...state.history.z, { timestamp: now, value: data.navigation.position.z }].slice(-100),
+          }
+        }));
+
+        // Sync structural analysis to backend for dashboard widgets
+        const streamData = {
+          surge: platformState.surge,
+          sway: platformState.sway,
+          heave: platformState.heave,
+          roll: platformState.roll,
+          pitch: platformState.pitch,
+          yaw: platformState.yaw,
+          mooringTension: mooring.totalHorizontalForce / 1000,
+          towerStress: tower.maxStress,
+          fatigueLife: shm.fatigueLifeUsed,
+          updatedAt: new Date().toISOString()
+        };
+
+        // Push to backend stream values
+        Object.entries({
+          'twin.surge': streamData.surge,
+          'twin.sway': streamData.sway,
+          'twin.heave': streamData.heave,
+          'twin.roll': streamData.roll,
+          'twin.pitch': streamData.pitch,
+          'twin.yaw': streamData.yaw,
+          'twin.mooring': streamData.mooringTension,
+          'twin.tower': streamData.towerStress,
+          'twin.fatigue': streamData.fatigueLife
+        }).forEach(([id, value]) => {
+          fetch(`http://localhost:8080/persist/stream-values/${id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lastValue: value, updatedAt: streamData.updatedAt })
+          }).catch(() => {});
+        });
+      } catch (e) {
+        console.error('Error parsing WebSocket message', e);
+      }
+    };
+
+    socket.onclose = () => {
+      console.log('Disconnected');
+      set({ isConnected: false });
+      socket = null;
+      if (!manualDisconnect) {
+        reconnectTimer = setTimeout(() => {
+          get().connect();
+        }, 1500);
+      }
+    };
+  },
+  disconnect: () => {
+    manualDisconnect = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (socket) {
+      socket.close();
+      socket = null;
+    }
+  },
+  setTwinData: (data) => set((state) => ({ ...state, ...data })),
+  updateConfig: (config) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(config));
+    } else {
+      console.warn('Cannot update config: WebSocket not connected');
+    }
+  },
+  setCameraSource: (source) => {
+    set({ cameraSource: source });
+    get().updateConfig({ camera_source: source });
+  },
+}));

@@ -1,0 +1,6 @@
+config: 
+  center_mass: False
+  point_and_click: True
+  
+paths:
+  output: "utils/scripts/postprocess/geometry/utils/3D_points/3D_points.json"

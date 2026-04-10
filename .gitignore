@@ -1,0 +1,73 @@
+# Entornos virtuales
+.venv/
+venv/
+backend/venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs y Salidas
+backend/output/csv/*.csv
+web/build_output.txt
+web/errors.txt
+/outputs/
+/results/
+logs/
+*.log
+
+# Datos (Grandes archivos y datasets)
+data/
+data/synthetic_dataset/
+*.pt
+*.fbx
+*.glb
+!web/public/models/*.fbx
+!web/public/models/*.glb
+
+# Node.js
+node_modules/
+dist/
+build/
+
+# Configuración local y secretos
+.env
+.env.local
+.env.*.local
+config.local.yaml
+
+# Editores y Sistema
+.vscode/
+.idea/
+.trae/
+.DS_Store
+Thumbs.db
+
+# Otros archivos temporales del proyecto
+debug*
+test_*
+analyze_*
+generate_*
+implementation*
+analysis_output/
+experiments/visualizations_pose/
+*.png
+*.jpg
+*.jpeg
+!web/src/assets/*.png
+!web/src/assets/*.jpg
+!web/src/assets/*.jpeg
+STRUCTURE.md
+README_NODES.md
+src/upload_to_hf.py
+src/regenerate_labels.pyru
+src/generate_comparison.py
+utils/scripts/geometry/verify_pnp.py
+verify_pnp.py
+pose_detection_kalman.py

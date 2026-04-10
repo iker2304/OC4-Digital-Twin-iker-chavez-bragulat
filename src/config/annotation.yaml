@@ -1,0 +1,13 @@
+pose:
+  keypoints:
+    - "pontoon_right_3"
+    - "pontoon_left_3"
+    - "pontoon_left_1"
+    - "pontoon_front_1"
+    - "pontoon_front_2"
+    - "pontoon_front_3"
+    - "Hub"
+    - "pontoon_center_left"
+    - "pontoon_center_right"
+    - "pontoon_center_front"
+    - "pilar_center"

@@ -1,0 +1,38 @@
+paths:
+  dataset: "data/synthetic_dataset/dataset"
+
+config:
+  model: "data/models/CV/pose/train_1/weights/best.pt"
+  resume: False
+  epochs: 150
+  imgsz: 640
+  batch_size: 8
+  lr0: 0.001
+  dataset:
+    train_ratio: 0.8
+  images_extensions: ['.png', '.jpg', '.jpeg']
+  device: 'cuda'
+  patience: 50
+  rect: False
+  pose: 12.0
+  kobj: 2.0
+  kpt_shape: [11, 3]  
+  sigmas: [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
+
+Augmentations:
+  degrees: 0
+  scale: 0.2
+  fliplr: 0 # Flip left to right
+  mosaic: 0
+
+Optimization_and_Hardware: 
+  workers: 4
+  cos_lr: True
+  cache: ram 
+
+output: 
+  name: "train"
+
+hydra:
+  job:
+    chdir: False

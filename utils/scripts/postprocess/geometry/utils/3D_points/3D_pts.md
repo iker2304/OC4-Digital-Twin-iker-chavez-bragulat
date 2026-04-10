@@ -1,0 +1,1 @@
+"C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" -b data/models/blender/OC4.blend -P utils/scripts/postprocess/geometry/utils/3D_points/3D_pts.py
