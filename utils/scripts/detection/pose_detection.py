@@ -144,6 +144,7 @@ def main(cfg: DictConfig) -> None:
     points_3d = None
     intrinsic_matrix = None
     distortion_coefficients = None
+    fallback_intrinsics = False
     pose_history = []
     orientation_history = []
     trackers = {}
@@ -152,15 +153,24 @@ def main(cfg: DictConfig) -> None:
         # Update paths to absolute for the loaders
         cfg.pnp.paths.points_3d = os.path.join(project_root, cfg.pnp.paths.points_3d)
         cfg.pnp.paths.intrinsic_matrix = os.path.join(project_root, cfg.pnp.paths.intrinsic_matrix)
-        
+
         try:
             points_3d = pnp_tools.load_3d_points(cfg)
-            intrinsic_matrix = pnp_tools.load_intrinsic_matrix(cfg)
-            distortion_coefficients = pnp_tools.load_distortion_coefficients(cfg)
-            print("PnP Data loaded successfully.")
         except Exception as e:
-            print(f"Error loading PnP Data: {e}")
+            print(f"Error loading 3D points for PnP: {e}")
             cfg.pnp.enabled = False
+
+        if cfg.pnp.enabled:
+            try:
+                intrinsic_matrix = pnp_tools.load_intrinsic_matrix(cfg)
+                distortion_coefficients = pnp_tools.load_distortion_coefficients(cfg)
+                print("PnP Data loaded successfully.")
+            except Exception as e:
+                # Keep PnP enabled with an approximate camera model when calibration file is missing.
+                print(f"Warning loading camera calibration for PnP: {e}")
+                print("Using fallback intrinsics (approximate). Pose will be less accurate.")
+                fallback_intrinsics = True
+                distortion_coefficients = np.zeros((5, 1), dtype=np.float32)
 
     # Initialize MQTT
     mqtt_client = None
@@ -257,7 +267,6 @@ def main(cfg: DictConfig) -> None:
         print(f"Starting detection in: {source}")
 
     import requests
-    import numpy as np
 
     def open_capture(src):
         if src == "mobile":
@@ -532,6 +541,15 @@ def main(cfg: DictConfig) -> None:
             )
 
             frame_h, frame_w = annotated_frame.shape[:2]
+
+            # Build approximate intrinsics if calibration file is unavailable.
+            if fallback_intrinsics and intrinsic_matrix is None:
+                focal = float(max(frame_w, frame_h))
+                intrinsic_matrix = np.array([
+                    [focal, 0.0, frame_w / 2.0],
+                    [0.0, focal, frame_h / 2.0],
+                    [0.0, 0.0, 1.0]
+                ], dtype=np.float32)
 
             # Automatic Intrinsic Scaling
             current_intrinsic = np.array(intrinsic_matrix, dtype=np.float32) if intrinsic_matrix is not None else None

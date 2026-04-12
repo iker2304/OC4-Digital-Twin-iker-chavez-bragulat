@@ -20,8 +20,8 @@ const isDetectionList = (value: unknown): value is DetectionItem[] => {
 
 export const DetectedObjectsPanel = () => {
   const { video } = useTwinStore();
-  const { keypoints, overlayData } = video;
-  const overlayDetections = (overlayData as OverlayDataWithDetections).detections;
+  const { keypoints = [], overlayData = {} } = video || {};
+  const overlayDetections = (overlayData as OverlayDataWithDetections)?.detections;
   const detections: DetectionItem[] = isDetectionList(overlayDetections)
     ? overlayDetections
     : keypoints.map((kp) => ({ id: kp.id, x: kp.x, y: kp.y }));

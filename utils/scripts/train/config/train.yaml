@@ -1,27 +1,27 @@
 paths:
-  dataset: "data/synthetic_dataset/dataset"
+  dataset: "data/synthetic_dataset/yolo_ready"
 
 config:
-  model: "data/models/CV/pose/train_1/weights/best.pt"
+  model: "yolo26s-pose.pt" # Custom model found in project root
   resume: False
   epochs: 150
   imgsz: 640
-  batch_size: 8
-  lr0: 0.001
+  batch_size: 32 # Increased if GPU allows, adjust to 8 if OOM
+  lr0: 0.01 # Standard starting LR
   dataset:
     train_ratio: 0.8
   images_extensions: ['.png', '.jpg', '.jpeg']
-  device: 'cuda'
-  patience: 50
+  device: '0' # Use '0' for first GPU or 'cpu'
+  patience: 100
   rect: False
-  pose: 12.0
+  pose: 20
   kobj: 2.0
-  kpt_shape: [11, 3]  
-  sigmas: [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
+  kpt_shape: [11, 3] # 11 keypoints (WindTurbine max)
+  sigmas: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05] # Matching 11 kpts
 
 Augmentations:
-  degrees: 0
-  scale: 0.2
+  degrees: 15
+  scale: 0.5
   fliplr: 0 # Flip left to right
   mosaic: 0
 

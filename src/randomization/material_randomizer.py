@@ -1,6 +1,60 @@
 import random
+import re
 import bpy
 from omegaconf import DictConfig
+
+LOCKED_HUB_PARTS = {"yellow_1", "yellow_2", "red_1", "red_2", "blue_1", "blue_2"}
+FORCED_NAME_COLORS = {
+    "red": (1.0, 0.0, 0.0, 1.0),
+    "blue": (0.0, 0.2, 1.0, 1.0),
+    "yellow": (1.0, 0.85, 0.0, 1.0),
+}
+
+def _base_name(name: str) -> str:
+    return name.split(".")[0] if "." in name else name
+
+def _is_hub_locked_part(obj: bpy.types.Object) -> bool:
+    """
+    Skip color randomization for selected blade bodies parented under Hub or rotation.
+    Accepts Blender duplicated names with suffixes (e.g. yellow_1.001).
+    """
+    if _base_name(obj.name) not in LOCKED_HUB_PARTS:
+        return False
+    parent = obj.parent
+    while parent:
+        parent_name = _base_name(parent.name).lower()
+        if parent_name == "hub" or parent_name == "rotation":
+            return True
+        parent = parent.parent
+    return False
+
+def _is_in_locked_blade_branch(obj: bpy.types.Object) -> bool:
+    """
+    Skip randomization for any object that is a blade or inside a blade hierarchy.
+    """
+    current = obj
+    while current:
+        name_lower = current.name.lower()
+        if "blade" in name_lower:
+            return True
+        current = current.parent
+   
+    for collection in obj.users_collection:
+        col_name = collection.name.lower()
+        if "blade" in col_name:
+            return True
+
+    return False
+
+def _forced_color_from_name(obj: bpy.types.Object):
+    """
+    Force semantic color for objects named like red_1, blue_2, yellow_3 (with Blender suffix allowed).
+    """
+    base = obj.name.lower()
+    m = re.search(r"(red|blue|yellow)_(\d+)", base)
+    if not m:
+        return None
+    return FORCED_NAME_COLORS.get(m.group(1))
 
 def get_instance_material(obj):
     """
@@ -37,6 +91,21 @@ def set_random_material_color(cfg: DictConfig, object_obj: bpy.types.Object) -> 
     # Only iterate through mesh objects once
     for obj in bpy.data.objects:
         if obj.type == 'MESH':
+            forced_color = _forced_color_from_name(obj)
+            if forced_color:
+                mat = get_instance_material(obj)
+                if mat and mat.use_nodes:
+                    bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+                    if bsdf:
+                        if bsdf.inputs['Base Color'].is_linked:
+                            for link in bsdf.inputs['Base Color'].links:
+                                mat.node_tree.links.remove(link)
+                        bsdf.inputs['Base Color'].default_value = forced_color
+                        mat.diffuse_color = forced_color
+                        applied_colors[obj.name] = [round(c, 4) for c in forced_color]
+                continue
+            if _is_hub_locked_part(obj) or _is_in_locked_blade_branch(obj):
+                continue
             mat = get_instance_material(obj)
             if mat and mat.use_nodes:
                 # Find BSDF
@@ -74,6 +143,10 @@ def apply_surface_defects(cfg: DictConfig) -> dict:
         
     for obj in bpy.data.objects:
         if obj.type != 'MESH' or not obj.data.materials:
+            continue
+        if _forced_color_from_name(obj):
+            continue
+        if _is_hub_locked_part(obj) or _is_in_locked_blade_branch(obj):
             continue
         
         # Use our instance material helper

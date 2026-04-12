@@ -12,22 +12,13 @@ if src_path not in sys.path:
     sys.path.append(src_path)
 
 from annotation.yolo_pose_annotation import create_yolo_pose_annotation
-# from generate_dataset_pose import KEYPOINT_ORDER, CLASS_MAPPING
+from omegaconf import OmegaConf
 
-KEYPOINT_ORDER = [
-    "Blade_1", "Blade_2", "Blade_3",
-    "Hub",
-    "Pilar_base", "Pilar_base_top",
-    "Pilar_mid", "Pilar_mid_b", "Pilar_mid_t",
-    "pontoon_base_front", "pontoon_base_left", "pontoon_base_right",
-    "Pontoon_top_front", "Pontoon_top_left", "pontoon_top_right",
-    "Tapa_inf_gondola", "Tapa_sup_gondola",
-    "Tubo_184mm_front", "Tubo_184mm_left", "Tubo_184mm_right",
-    "Tubo_230mm_front", "Tubo_230mm_left", "Tubo_230mm_right",
-    "Tubo_309mm_front", "Tubo_309mm_left", "Tubo_309mm_right",
-    "Tubo_353mm_back", "Tubo_353mm_left", "Tubo_353mm_right",
-    "Tubo_444mm_back", "Tubo_444mm_left", "Tubo_444mm_right"
-]
+def load_config(project_root):
+    config_path = project_root / "src" / "config" / "annotation.yaml"
+    if config_path.exists():
+        return OmegaConf.load(config_path)
+    return None
 
 def main():
     # 0. Setup Paths
@@ -35,6 +26,8 @@ def main():
     script_path = Path(__file__).resolve()
     # src/regenerate_labels.py -> src -> project_root
     project_root = script_path.parent.parent
+    
+    cfg = load_config(project_root)
     
     pose_root = project_root / "data" / "synthetic_dataset" / "pose"
     gt_path = pose_root / "ground_truth"
@@ -137,13 +130,43 @@ def main():
                     class_name = obj_data['class_name']
                     annotated_objects.append((blender_obj, class_name))
                 else:
-                    # Warning: object from GT missing in FBX?
-                    # Could happen if FBX changed or dynamic objects
                     pass
             
-            # 3.3 Re-generate Label
-            # Verify we have scene update
+            # Verify we have scene update so parented objects (like keypoints) follow their parents
             bpy.context.view_layer.update()
+            
+            # Re-discover keypoints that might not have been saved in GT (like EMPTY VIS_ objects)
+            # Find global max keypoints from config to know what to look for
+            keypoint_names = []
+            class_names = []
+            if hasattr(cfg, 'pose') and hasattr(cfg.pose, 'classes'):
+                for cls in cfg.pose.classes:
+                    if hasattr(cls, 'keypoints'):
+                        keypoint_names.extend(list(cls.keypoints))
+                    if hasattr(cls, 'name'):
+                        class_names.append(cls.name)
+            
+            # Add any missing keypoint objects to annotated_objects
+            existing_objs = {obj.name for obj, _ in annotated_objects}
+            for obj in bpy.data.objects:
+                if obj.name in existing_objs:
+                    continue
+                
+                raw_name = obj.name
+                parent_name = obj.parent.name if obj.parent else ""
+                search_str = f"{parent_name}_{raw_name}" if parent_name else raw_name
+                search_str_low = search_str.lower()
+                
+                best_match = None
+                for kp in keypoint_names:
+                    if kp.lower() in search_str_low:
+                        if best_match is None or len(kp) > len(best_match):
+                            best_match = kp
+                            
+                if best_match:
+                    annotated_objects.append((obj, best_match))
+            
+            # 3.3 Re-generate Label
             
             file_stem = json_file.stem
             label_output = labels_path / f"{file_stem}.txt"
@@ -153,7 +176,7 @@ def main():
                 camera,
                 label_output,
                 annotated_objects,
-                KEYPOINT_ORDER
+                cfg=cfg
             )
             
             processed_count += 1

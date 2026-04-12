@@ -1,13 +1,28 @@
 pose:
-  keypoints:
-    - "pontoon_right_3"
-    - "pontoon_left_3"
-    - "pontoon_left_1"
-    - "pontoon_front_1"
-    - "pontoon_front_2"
-    - "pontoon_front_3"
-    - "Hub"
-    - "pontoon_center_left"
-    - "pontoon_center_right"
-    - "pontoon_center_front"
-    - "pilar_center"
+  classes:
+    - name: "WindTurbine"
+      id: 0
+      keypoints:
+        - "pontoon_right_3"
+        - "pontoon_left_3"
+        - "pontoon_left_1"
+        - "pontoon_front_1"
+        - "pontoon_front_2"
+        - "pontoon_front_3"
+        - "Hub"
+        - "pontoon_right_2"
+        - "pontoon_left_2"
+        - "pontoon_right_1"
+        - "pilar_center"
+    - name: "Rotor"
+      id: 1
+      keypoints:
+        - "blade_red_1"
+        - "blade_red_2"
+        - "blade_red_3"
+        - "blade_blue_1"
+        - "blade_blue_2"
+        - "blade_blue_3"
+        - "blade_yellow_1"
+        - "blade_yellow_2"
+        - "blade_yellow_3"

@@ -114,12 +114,12 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
         // Prepare State for Physics Engine
         const currentEnv = get().envConditions;
         const platformState: PlatformState = {
-            surge: data.navigation.position.x,
-            sway: data.navigation.position.y, // Note: standard coord mapping check needed
-            heave: data.navigation.position.z,
-            roll: data.navigation.roll,
-            pitch: data.navigation.pitch,
-            yaw: data.navigation.yaw
+            surge: Number(data.navigation?.position?.x) || 0,
+            sway: Number(data.navigation?.position?.y) || 0, // Note: standard coord mapping check needed
+            heave: Number(data.navigation?.position?.z) || 0,
+            roll: Number(data.navigation?.roll) || 0,
+            pitch: Number(data.navigation?.pitch) || 0,
+            yaw: Number(data.navigation?.yaw) || 0
         };
 
         // Run Structural Analysis
@@ -130,11 +130,11 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
         const analysisResult: StructuralAnalysisResult = { mooring, tower, shm };
 
         set((state) => ({
-          navigation: data.navigation,
-          metrics: data.metrics,
-          video: data.video,
-          pose: data.pose,
-          system: data.system,
+          navigation: data.navigation || state.navigation,
+          metrics: data.metrics || state.metrics,
+          video: data.video || state.video,
+          pose: data.pose || state.pose,
+          system: data.system || state.system,
 
           structural: analysisResult,
           structuralHistory: [...state.structuralHistory, {
@@ -145,12 +145,12 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
           }].slice(-500),
 
           history: {
-            roll: [...state.history.roll, { timestamp: now, value: data.navigation.roll }].slice(-100),
-            pitch: [...state.history.pitch, { timestamp: now, value: data.navigation.pitch }].slice(-100),
-            yaw: [...state.history.yaw, { timestamp: now, value: data.navigation.yaw }].slice(-100),
-            x: [...state.history.x, { timestamp: now, value: data.navigation.position.x }].slice(-100),
-            y: [...state.history.y, { timestamp: now, value: data.navigation.position.y }].slice(-100),
-            z: [...state.history.z, { timestamp: now, value: data.navigation.position.z }].slice(-100),
+            roll: [...(state.history?.roll || []), { timestamp: now, value: Number(data.navigation?.roll) || 0 }].slice(-100),
+            pitch: [...(state.history?.pitch || []), { timestamp: now, value: Number(data.navigation?.pitch) || 0 }].slice(-100),
+            yaw: [...(state.history?.yaw || []), { timestamp: now, value: Number(data.navigation?.yaw) || 0 }].slice(-100),
+            x: [...(state.history?.x || []), { timestamp: now, value: Number(data.navigation?.position?.x) || 0 }].slice(-100),
+            y: [...(state.history?.y || []), { timestamp: now, value: Number(data.navigation?.position?.y) || 0 }].slice(-100),
+            z: [...(state.history?.z || []), { timestamp: now, value: Number(data.navigation?.position?.z) || 0 }].slice(-100),
           }
         }));
 

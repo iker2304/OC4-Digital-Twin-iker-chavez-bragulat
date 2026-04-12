@@ -1,6 +1,6 @@
 detection:
   paths:
-    models: 'data\models\CV\pose\train_1\weights\best.pt'
+    models: 'data\models\CV\pose\train\weights\best.pt'
     output: "results/detections"      
 
   source: 0 #"data/utils/oc4_nt2.mp4"

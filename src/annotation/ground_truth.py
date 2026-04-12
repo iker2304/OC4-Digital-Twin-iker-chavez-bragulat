@@ -11,7 +11,7 @@ def serialize_vector(v):
 def serialize_matrix(m):
     return [serialize_vector(row) for row in m]
 
-def save_ground_truth(filepath, scene, camera, annotated_objects, compositor_settings=None, background_image=None, material_colors=None, surface_defects=None):
+def save_ground_truth(filepath, scene, camera, annotated_objects, compositor_settings=None, background_image=None, material_colors=None, surface_defects=None, rotor_rotation=None):
     """
     Saves comprehensive ground truth data to a JSON file.
     
@@ -24,6 +24,7 @@ def save_ground_truth(filepath, scene, camera, annotated_objects, compositor_set
         background_image (str, optional): Name of the background image used.
         material_colors (dict, optional): Applied random colors per object.
         surface_defects (dict, optional): Applied surface defect parameters.
+        rotor_rotation (float, optional): Applied randomized rotor rotation in degrees.
     """
     
     data = {
@@ -49,7 +50,8 @@ def save_ground_truth(filepath, scene, camera, annotated_objects, compositor_set
             "background_image": background_image,
             "compositor_settings": compositor_settings,
             "material_colors": material_colors,
-            "surface_defects": surface_defects
+            "surface_defects": surface_defects,
+            "rotor_rotation_deg": round(rotor_rotation, 4) if rotor_rotation is not None else None
         },
         "lights": [],
         "objects": []
@@ -69,18 +71,25 @@ def save_ground_truth(filepath, scene, camera, annotated_objects, compositor_set
             data["lights"].append(light_data)
             
     # Capture Annotated Objects
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    cam_eval = camera.evaluated_get(depsgraph)
     for obj, class_name in annotated_objects:
-        matrix_world = obj.matrix_world
+        obj_eval = obj.evaluated_get(depsgraph)
+        matrix_world = obj_eval.matrix_world
         location = matrix_world.to_translation()
         rotation = matrix_world.to_euler()
         scale = matrix_world.to_scale()
         
-      
-        bbox_coords = [matrix_world @ Vector(corner) for corner in obj.bound_box]
-        center = sum(bbox_coords, Vector()) / 8.0
+        # For MESH objects, use center of mass/bbox. For EMPTY, use origin.
+        if obj_eval.type == 'MESH' and len(obj_eval.bound_box) > 0:
+            bbox_coords = [matrix_world @ Vector(corner) for corner in obj_eval.bound_box]
+            center = sum(bbox_coords, Vector()) / 8.0
+        else:
+            # Use origin for Empties or meshes without bbox
+            center = matrix_world.to_translation()
         
         # Project center to 2D
-        co_2d = world_to_camera_view(scene, camera, center)
+        co_2d = world_to_camera_view(scene, cam_eval, center)
         render_scale = scene.render.resolution_percentage / 100
         res_x = scene.render.resolution_x * render_scale
         res_y = scene.render.resolution_y * render_scale

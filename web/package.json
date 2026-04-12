@@ -62,6 +62,6 @@
     "vite": "^7.2.4",
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-pwa": "^1.2.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.4"
   }
 }

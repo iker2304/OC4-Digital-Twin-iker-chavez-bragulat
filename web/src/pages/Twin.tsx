@@ -43,7 +43,13 @@ export default function Twin() {
   const [layout, setLayout] = useState(() => {
     try {
       const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : DEFAULT_LAYOUT;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].i) {
+          return parsed;
+        }
+      }
+      return DEFAULT_LAYOUT;
     } catch {
       return DEFAULT_LAYOUT;
     }
@@ -79,11 +85,15 @@ export default function Twin() {
     localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(DEFAULT_LAYOUT));
   };
 
-  const pitchValue = navigation.pitch.toFixed(2);
+  const safePitch = Number(navigation?.pitch) || 0;
+  const pitchValue = safePitch.toFixed(2);
+  
+  const posX = Number(navigation?.position?.x) || 0;
+  const posY = Number(navigation?.position?.y) || 0;
+  const posZ = Number(navigation?.position?.z) || 0;
+  
   const distanceFromPosition = Math.sqrt(
-    navigation.position.x ** 2 +
-    navigation.position.y ** 2 +
-    navigation.position.z ** 2
+    posX ** 2 + posY ** 2 + posZ ** 2
   ).toFixed(2);
 
   const panelBaseClass = useMemo(
@@ -152,7 +162,7 @@ export default function Twin() {
                 Online
               </div>
             </div>
-            <ModelViewer />
+            <ModelViewer editMode={isEditing} />
           </div>
         </div>
 

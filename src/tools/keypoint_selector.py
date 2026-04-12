@@ -13,13 +13,73 @@ import bmesh
 import json
 import os
 import mathutils
+import re
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 KEYPOINTS_FILE = os.path.join(PROJECT_ROOT, "data", "models", "blender", "config", "keypoints.json")
+ANNOTATION_CONFIG = os.path.join(PROJECT_ROOT, "src", "config", "annotation.yaml")
+
+def resolve_keypoints_file():
+    candidates = [
+        KEYPOINTS_FILE,
+        os.path.join(PROJECT_ROOT, "data", "models", "blender", "keypoints.json"),
+        os.path.join(bpy.path.abspath("//"), "keypoints.json"),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            print(f"[Keypoint Selector] Using keypoints file: {p}")
+            return p
+    print(f"[Keypoint Selector] Using new keypoints file path: {KEYPOINTS_FILE}")
+    return KEYPOINTS_FILE
+
+def get_annotation_classes():
+    """Very permissive regex for class names in annotation.yaml"""
+    classes = []
+    
+    # Try different potential locations
+    paths_to_try = [
+        ANNOTATION_CONFIG,
+        os.path.join(os.path.dirname(__file__), "..", "config", "annotation.yaml"),
+        os.path.join(bpy.path.abspath("//"), "..", "..", "..", "src", "config", "annotation.yaml"),
+    ]
+    
+    actual_path = None
+    for p in paths_to_try:
+        if os.path.exists(p):
+            actual_path = p
+            break
+            
+    print(f"\n[Keypoint Selector] Attempting to read config from: {actual_path}")
+    
+    if actual_path:
+        try:
+            with open(actual_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                # Ultra permissive regex: find anything after "name:" and before a newline or quote
+                # Matches: - name: WindTurbine, - name: "WindTurbine",   name: 'WindTurbine'
+                matches = re.findall(r'name:\s*["\']?([^"\']+\b)', content)
+                
+                # Filter out duplicates and common YAML keywords if any
+                seen = set()
+                for m in matches:
+                    m = m.strip()
+                    if m and m not in seen and m != "pose" and m != "classes":
+                        classes.append((m, m, f"Save to class {m}"))
+                        seen.add(m)
+                
+                print(f"[Keypoint Selector] Final classes found: {list(seen)}")
+        except Exception as e:
+            print(f"[Keypoint Selector] Error reading file: {e}")
+    
+    if not classes:
+        print("[Keypoint Selector] Warning: Using Default.")
+        classes = [("Default", "Default", "Default class")]
+    return classes
 
 def load_keypoints():
-    if os.path.exists(KEYPOINTS_FILE):
-        with open(KEYPOINTS_FILE, 'r') as f:
+    keypoints_path = resolve_keypoints_file()
+    if os.path.exists(keypoints_path):
+        with open(keypoints_path, 'r') as f:
             try:
                 data = json.load(f)
                 return data.get("keypoints", [])
@@ -28,9 +88,11 @@ def load_keypoints():
     return []
 
 def save_keypoints(data):
-    os.makedirs(os.path.dirname(KEYPOINTS_FILE), exist_ok=True)
-    with open(KEYPOINTS_FILE, 'w') as f:
+    keypoints_path = resolve_keypoints_file()
+    os.makedirs(os.path.dirname(keypoints_path), exist_ok=True)
+    with open(keypoints_path, 'w') as f:
         json.dump({"keypoints": data}, f, indent=4)
+    print(f"[Keypoint Selector] Saved {len(data)} keypoints to: {keypoints_path}")
 
 def spawn_visualizer(name, location):
     # Remove existing visualizer if any
@@ -78,12 +140,19 @@ class KEYPOINT_OT_add(bpy.types.Operator):
     
     use_center: bpy.props.BoolProperty(name="Use Center of Mass", default=False)
     keypoint_name: bpy.props.StringProperty(name="Keypoint Name")
+    class_name: bpy.props.EnumProperty(
+        name="Global Class",
+        description="Select the class from annotation.yaml to associate this keypoint with",
+        items=lambda self, context: get_annotation_classes()
+    )
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
     def draw(self, context):
         layout = self.layout
+        layout.prop(self, "class_name")
+        layout.separator()
         layout.prop(self, "keypoint_name")
         layout.prop(self, "use_center")
 
@@ -96,6 +165,7 @@ class KEYPOINT_OT_add(bpy.types.Operator):
         kp_data = {
             "name": self.keypoint_name if self.keypoint_name else obj.name,
             "object_name": obj.name,
+            "class_name": self.class_name,
             "type": "center" if self.use_center else "vertex",
             "vertex_index": -1
         }
@@ -193,6 +263,18 @@ class KEYPOINT_PT_main(bpy.types.Panel):
         # Add Button
         layout.operator("keypoint.add", icon='ADD')
         layout.operator("keypoint.visualize_all", icon='RESTRICT_VIEW_OFF')
+        
+        # List of keypoints
+        data = load_keypoints()
+        if data:
+            layout.label(text="Registered Keypoints:")
+            for i, kp in enumerate(data):
+                row = layout.row(align=True)
+                # Show class and name
+                class_label = f"[{kp.get('class_name', 'No Class')}]"
+                row.label(text=f"{class_label} {kp['name']}")
+                remove_op = row.operator("keypoint.remove", text="", icon='X')
+                remove_op.index = i
         
         box = layout.box()
         box.label(text="Instructions:", icon='INFO')

@@ -1,6 +1,6 @@
 blender: 
   config: 
-    num_renders: 30000 # Number of images to render
+    num_renders: 13000 # Number of images to render
     resolution_x: 1280 # Resolution of the image in pixels
     resolution_y: 1280 # Resolution of the image in pixels
   scene: 
