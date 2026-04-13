@@ -15,6 +15,54 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 output_frame = None
 lock = threading.Lock()
 
+
+class CameraCapture:
+    """Threaded camera capture to decouple frame grabbing from inference.
+
+    Runs a background thread that continuously reads frames from the camera so
+    that by the time the main loop asks for a frame it is always the freshest
+    one, eliminating the blocking wait that causes jitter.
+    """
+
+    def __init__(self, cap):
+        self._cap = cap
+        self._frame = None
+        self._ret = False
+        self._lock = threading.Lock()
+        self._running = True
+        self._thread = threading.Thread(target=self._reader, daemon=True)
+        self._thread.start()
+
+    def _reader(self):
+        while self._running:
+            ret, frame = self._cap.read()
+            with self._lock:
+                self._ret = ret
+                self._frame = frame
+            if not ret:
+                time.sleep(0.01)
+
+    def read(self):
+        with self._lock:
+            frame = self._frame.copy() if self._frame is not None else None
+            return self._ret, frame
+
+    def isOpened(self):
+        return self._cap.isOpened()
+
+    def release(self):
+        self._running = False
+        self._thread.join(timeout=2.0)
+        self._cap.release()
+
+    def get(self, prop):
+        return self._cap.get(prop)
+
+    @property
+    def is_threaded(self):
+        return True
+
+
 class MJPEGServer(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/video_feed':
@@ -154,11 +202,18 @@ def main(cfg: DictConfig) -> None:
     best_model = get_latest_model(base_models_path)
     
     if not best_model or not os.path.exists(best_model):
-        print("Error: Not find best.pt in the models folder.")
+        print(f"Error: Not find best.pt in the models folder: {base_models_path}")
         return
 
+    import torch
+    device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+    if device == 'mps':
+        print("Using MPS (Metal Performance Shaders) for acceleration.")
+    else:
+        print(f"Using device: {device}")
+        
     print(f"Loading model: {best_model}")
-    model = YOLO(best_model)
+    model = YOLO(best_model).to(device)
 
     # Start Streaming Server
     print("Initializing MJPEG server thread...")
@@ -312,17 +367,22 @@ def main(cfg: DictConfig) -> None:
                     except Exception:
                         pass
                     return False, None
-            return MobileCapture()
+            return CameraCapture(MobileCapture())
 
         if isinstance(src, int):
             # On Windows, MSMF can fail to grab frames in some drivers; try DirectShow first.
+            raw_cap = None
             if sys.platform.startswith("win") and hasattr(cv2, "CAP_DSHOW"):
-                cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)
-                if cap.isOpened():
-                    return cap
-                cap.release()
-            if sys.platform == "darwin" and hasattr(cv2, "CAP_AVFOUNDATION"):
-                return cv2.VideoCapture(src, cv2.CAP_AVFOUNDATION)
+                raw_cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+                if not raw_cap.isOpened():
+                    raw_cap.release()
+                    raw_cap = None
+            if raw_cap is None and sys.platform == "darwin" and hasattr(cv2, "CAP_AVFOUNDATION"):
+                raw_cap = cv2.VideoCapture(src, cv2.CAP_AVFOUNDATION)
+            if raw_cap is None:
+                raw_cap = cv2.VideoCapture(src)
+            # Wrap live cameras in a threaded reader for smooth, jitter-free capture
+            return CameraCapture(raw_cap)
         return cv2.VideoCapture(src)
 
     cap = open_capture(source)
@@ -479,17 +539,20 @@ def main(cfg: DictConfig) -> None:
                     print(f"Error: Could not reopen previous video source {old_source}.")
                     break
 
-        now = time.time()
-        if now > next_frame_time + frame_interval_s:
-            frames_to_skip = int((now - next_frame_time) / frame_interval_s)
-            if frames_to_skip > 0:
-           
-                frames_to_skip = min(frames_to_skip, 30) 
-                for _ in range(frames_to_skip):
-                    if not cap.grab():
-                        break
-                    frame_indx += 1
-                    next_frame_time += frame_interval_s
+        # Frame-skip logic only applies to file sources; live cameras (CameraCapture)
+        # already drain the camera buffer in their background thread, so skipping
+        # would only waste CPU and add jitter.
+        if not getattr(cap, 'is_threaded', False):
+            now = time.time()
+            if now > next_frame_time + frame_interval_s:
+                frames_to_skip = int((now - next_frame_time) / frame_interval_s)
+                if frames_to_skip > 0:
+                    frames_to_skip = min(frames_to_skip, 30)
+                    for _ in range(frames_to_skip):
+                        if not cap.grab():
+                            break
+                        frame_indx += 1
+                        next_frame_time += frame_interval_s
 
         next_frame_time += frame_interval_s
 
@@ -556,7 +619,10 @@ def main(cfg: DictConfig) -> None:
             persist=True,
             show_boxes=current_cfg["show_boxes"],
             max_det=2,
-            verbose=False
+            verbose=False,
+            device=device,
+            half=(device == 'mps'), # FP16 is faster on Mac/MPS
+            imgsz=640
         )
 
         for i in results:
@@ -765,8 +831,10 @@ def main(cfg: DictConfig) -> None:
 
 
         # Always update stream frame, even when there are no detections.
+        # Quality 80 strikes a good balance between image fidelity and encoding speed.
         try:
-            ret_enc, buffer = cv2.imencode('.jpg', annotated_frame)
+            ret_enc, buffer = cv2.imencode('.jpg', annotated_frame,
+                                           [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ret_enc:
                 with lock:
                     output_frame = buffer.tobytes()

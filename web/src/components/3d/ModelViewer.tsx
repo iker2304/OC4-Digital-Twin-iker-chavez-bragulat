@@ -292,11 +292,12 @@ const LivePlatformController = ({
 };
 
 // Angular offsets for each blade colour within the rotor (120° apart).
-// blade_red is the reference blade (0°); the others are offset accordingly.
+// Standard orientation: reference blade points "up" (90° / PI/2) when rotation is 0.
+// We use positive (CCW) offsets to match the model's blade order.
 const ROTOR_BLADE_OFFSETS: Record<string, number> = {
-  'blade_red':    0,
-  'blade_blue':   (2 * Math.PI) / 3,
-  'blade_yellow': (4 * Math.PI) / 3,
+  'blade_blue':   (Math.PI / 2),
+  'blade_yellow': (Math.PI / 2) + (2 * Math.PI) / 3,
+  'blade_red':    (Math.PI / 2) + (4 * Math.PI) / 3,
 };
 
 // Lerp two angles taking the shortest arc (avoids wrap-around jumps at ±π)
@@ -364,6 +365,10 @@ const BladeController = ({ scene }: { scene: THREE.Group | null }) => {
     if (foundNode) {
       console.log('BladeController: Target rotation node found:', foundNode.name);
       rotationNode.current = foundNode;
+      
+      // Check for children with color names to confirm offsets
+      const childrenNames = foundNode.children.map(c => c.name.toLowerCase());
+      console.log('BladeController: Rotor children:', childrenNames);
     } else {
       console.warn('BladeController: No rotation/hub node found in model hierarchy.');
       console.log('BladeController: Top level nodes:', scene.children.map(c => c.name));
@@ -392,54 +397,92 @@ const BladeController = ({ scene }: { scene: THREE.Group | null }) => {
       return;
     }
 
-    // Collect Rotor-class keypoints: blade_red_*, blade_blue_*, blade_yellow_*
+    // Find the Hub keypoint to use as the center of rotation
+    const hubKpt = video.keypoints.find(k => String(k.id).toLowerCase() === 'hub');
+    
+    let hubX: number;
+    let hubY: number;
+
+    if (hubKpt) {
+      hubX = hubKpt.x;
+      hubY = hubKpt.y;
+      if (shouldLog) {
+        console.log(`BladeController: Using dedicated Hub keypoint at (${hubX.toFixed(1)}, ${hubY.toFixed(1)})`);
+      }
+    } else {
+      // Fallback: Hub center = centroid of all Rotor keypoints
+      const rotorKpts = video.keypoints.filter(k => {
+        const id = String(k.id).toLowerCase();
+        return id.startsWith('blade_red') || id.startsWith('blade_blue') || id.startsWith('blade_yellow');
+      });
+
+      if (rotorKpts.length === 0) {
+        if (shouldLog) {
+          console.log('BladeController: No Hub or Rotor keypoints found');
+          lastLoggedRef.current = now;
+        }
+        return;
+      }
+
+      hubX = rotorKpts.reduce((sum, k) => sum + k.x, 0) / rotorKpts.length;
+      hubY = rotorKpts.reduce((sum, k) => sum + k.y, 0) / rotorKpts.length;
+      
+      if (shouldLog) {
+        console.log(`BladeController: Falling back to Rotor centroid at (${hubX.toFixed(1)}, ${hubY.toFixed(1)})`);
+      }
+    }
+
+    // Collect all Rotor keypoints for tip detection
     const rotorKpts = video.keypoints.filter(k => {
       const id = String(k.id).toLowerCase();
       return id.startsWith('blade_red') || id.startsWith('blade_blue') || id.startsWith('blade_yellow');
     });
 
-    if (rotorKpts.length === 0) {
-      if (shouldLog) {
-        console.log('BladeController: No Rotor keypoints (blade_red/blue/yellow) found');
-        lastLoggedRef.current = now;
-      }
-      return;
-    }
-
-    // Hub center = centroid of all Rotor keypoints
-    const hubX = rotorKpts.reduce((sum, k) => sum + k.x, 0) / rotorKpts.length;
-    const hubY = rotorKpts.reduce((sum, k) => sum + k.y, 0) / rotorKpts.length;
-
     // Find a reference tip point to compute the rotor angle.
     // Try outermost points first (_3 > _2 > _1) across all blade colours.
     // Subtract each blade's angular offset so all three blades give the same rotor angle.
-    let targetAngle: number | null = null;
+    let firstTarget: number | null = null;
+    let sumDiff = 0;
+    let countTargetAngle = 0;
 
     const suffixes = ['_3', '_2', '_1'];
     const bladeGroups = Object.keys(ROTOR_BLADE_OFFSETS);
 
-    outer: for (const suffix of suffixes) {
+    for (const suffix of suffixes) {
       for (const group of bladeGroups) {
         const kptName = `${group}${suffix}`;
         const kpt = rotorKpts.find(k => String(k.id).toLowerCase() === kptName);
         if (kpt) {
-          // Raw image angle from hub to this keypoint (image Y is down → negate)
-          const rawAngle = Math.atan2(kpt.y - hubY, kpt.x - hubX);
+          const rawAngle = Math.atan2(-(kpt.y - hubY), kpt.x - hubX);
           const bladeOffset = ROTOR_BLADE_OFFSETS[group] ?? 0;
-          // Rotor reference angle = image angle of this blade minus its natural offset
-          targetAngle = rawAngle - bladeOffset;
-
-          if (shouldLog) {
-            console.log(
-              `BladeController: Rotor via ${kptName} — image angle=${rawAngle.toFixed(3)} rad, ` +
-              `offset=${bladeOffset.toFixed(3)} rad, rotate.z=${targetAngle.toFixed(3)} rad`
-            );
-            lastLoggedRef.current = now;
+          // Invert rotation direction: target = offset - rawAngle 
+          // to make the 3D model rotate opposite to the image detection angles
+          // while preserving the point where rawAngle === offset (target = 0)
+          const target = bladeOffset - rawAngle;
+          
+          if (firstTarget === null) {
+            firstTarget = target;
+            countTargetAngle = 1;
+          } else {
+            let diff = target - firstTarget;
+            while (diff >  Math.PI) diff -= 2 * Math.PI;
+            while (diff < -Math.PI) diff += 2 * Math.PI;
+            sumDiff += diff;
+            countTargetAngle++;
           }
-          break outer;
+
+          if (shouldLog && countTargetAngle === 1) {
+            console.log(
+              `BladeController: Rotor sync via ${kptName} — detected=${rawAngle.toFixed(3)} rad, ` +
+              `offset=${bladeOffset.toFixed(3)} rad, target=${target.toFixed(3)} rad`
+            );
+          }
         }
       }
+      if (countTargetAngle > 0) break;
     }
+
+    let targetAngle: number | null = firstTarget !== null ? (firstTarget + (sumDiff / countTargetAngle)) : null;
 
     if (targetAngle !== null) {
       // Stage 1: low-pass filter on the raw detected angle to reduce keypoint noise
@@ -457,7 +500,7 @@ const BladeController = ({ scene }: { scene: THREE.Group | null }) => {
       rotationNode.current.rotation.z = lerpAngleShortest(
         rotationNode.current.rotation.z,
         smoothedAngleRef.current,
-        Math.min(1, delta * 3)     // ~5% convergence per frame @ 60fps → fluid following
+        Math.min(1, delta * 6)     // Increased convergence for better responsiveness
       );
     }
   });
