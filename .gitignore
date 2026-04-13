@@ -41,9 +41,8 @@ build/
 .env.local
 .env.*.local
 config.local.yaml
-
-# Editores y Sistema
 .vscode/
+CLAUDE.md
 .idea/
 .trae/
 .DS_Store

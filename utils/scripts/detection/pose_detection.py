@@ -57,6 +57,20 @@ from utils.scripts.postprocess.geometry import pnp_solver as pnp_tools
 from utils.scripts.postprocess.geometry import orientation as orientation_tools
 from utils.scripts.detection.kalman_utils import KeypointSmoother
 
+# Load dynamic keypoint mapping if available
+keypoint_mapping = {}
+mapping_path = os.path.join(project_root, "utils", "scripts", "postprocess", "geometry", "utils", "3D_points", "keypoint_mapping.json")
+try:
+    if os.path.exists(mapping_path):
+        with open(mapping_path, 'r') as f:
+            mapping_data = json.load(f)
+            for k, v in mapping_data.items():
+                keypoint_mapping[int(k)] = v
+        print(f"Loaded {len(keypoint_mapping)} keypoint names from mapping.")
+except Exception as e:
+    print(f"Warning: Could not load keypoint mapping from {mapping_path}: {e}")
+
+# Fallback hardcoded mappings
 KEYPOINT_ORDER_32 = [
     "Blade_1", "Blade_2", "Blade_3",
     "Hub",
@@ -85,6 +99,18 @@ KEYPOINT_ORDER_11 = [
     "pontoon_center_front",
     "pilar_center"
 ]
+
+KEYPOINT_ORDER_9 = [
+    "blade_red_1", "blade_red_2", "blade_red_3",
+    "blade_blue_1", "blade_blue_2", "blade_blue_3",
+    "blade_yellow_1", "blade_yellow_2", "blade_yellow_3"
+]
+
+# Maps class name → ordered keypoint names for that class
+CLASS_KEYPOINT_ORDERS = {
+    "WindTurbine": KEYPOINT_ORDER_11,
+    "Rotor": KEYPOINT_ORDER_9,
+}
 
 def get_latest_model(path):
     if not os.path.exists(path):
@@ -529,7 +555,7 @@ def main(cfg: DictConfig) -> None:
             show=False,
             persist=True,
             show_boxes=current_cfg["show_boxes"],
-            max_det=1,
+            max_det=2,
             verbose=False
         )
 
@@ -569,6 +595,9 @@ def main(cfg: DictConfig) -> None:
                 names = i.names
                 
                 obj_ids = i.boxes.id.cpu().numpy().astype(int) if i.boxes.id is not None else range(len(kpts))
+                all_frame_points = {}
+                frame_pose = None
+                frame_orientation = None
                 for idx, obj_idx in enumerate(range(len(kpts))):
                     class_name = names[int(classes[obj_idx])]
                     track_id = obj_ids[idx]
@@ -597,14 +626,19 @@ def main(cfg: DictConfig) -> None:
                             # Apply Kalman Filter Smoothing
                             x, y = kp_smoother.update(track_id, kp_idx, raw_x, raw_y)
                             
-                            # Dynamic keypoint naming based on detection count
+                            # Class-aware keypoint naming: use class name first, then count-based fallback
                             num_kpts = len(kpts[obj_idx])
-                            if num_kpts == 11:
-                                kp_name = KEYPOINT_ORDER_11[kp_idx]
-                            elif num_kpts == 32:
+                            kp_order = CLASS_KEYPOINT_ORDERS.get(class_name, [])
+                            if kp_idx < len(kp_order):
+                                kp_name = kp_order[kp_idx]
+                            elif num_kpts == 32 and kp_idx < len(KEYPOINT_ORDER_32):
                                 kp_name = KEYPOINT_ORDER_32[kp_idx]
+                            elif kp_idx in keypoint_mapping:
+                                kp_name = keypoint_mapping[kp_idx]
                             else:
                                 kp_name = f"kp_{kp_idx}"
+                                if kp_idx == 0 and frame_indx % 60 == 0:
+                                    print(f"Warning: Keypoint {kp_idx} not in mapping (class: {class_name}, total kpts: {num_kpts}).")
                             
                             pnp_points[kp_name] = {
                                 "x": float(x),
@@ -700,24 +734,34 @@ def main(cfg: DictConfig) -> None:
                                     orientation_data["Distance"]["z"]
                                 ])
 
+                    # Accumulate keypoints and pose/orientation across all detected objects
+                    all_frame_points.update(pnp_points)
+                    if "pose" in obj_payload and frame_pose is None:
+                        frame_pose = obj_payload["pose"]
+                    if "orientation" in obj_payload and frame_orientation is None:
+                        frame_orientation = obj_payload["orientation"]
+
                     # Push payload to cumulative result
                     all_detections.append(obj_payload)
 
-                    # Final publish with Rate Limiting
-                    current_time = time.time()
-                    if mqtt_client and (current_time - last_mqtt_publish_time) >= mqtt_publish_interval:
-                        mqtt_client.publish(obj_payload)
-                        last_mqtt_publish_time = current_time
-                        # Visual indicator
-                        cv2.circle(annotated_frame, (30, 30), 10, (0, 255, 0), -1)
-                        cv2.putText(annotated_frame, "MQTT TX", (50, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                    elif mqtt_client:
-                        # Visual indicator (Idle)
-                        cv2.circle(annotated_frame, (30, 30), 10, (255, 255, 0), -1) # Cyan for Idle
-                        cv2.putText(annotated_frame, "MQTT IDLE", (50, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-                    else:
-                        cv2.circle(annotated_frame, (30, 30), 10, (0, 0, 255), -1)
-                        cv2.putText(annotated_frame, "NO MQTT", (50, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                # Publish one combined payload per frame (after all objects processed)
+                current_time = time.time()
+                if mqtt_client and all_frame_points and (current_time - last_mqtt_publish_time) >= mqtt_publish_interval:
+                    combined_payload = {"frame": frame_indx, "points": all_frame_points}
+                    if frame_pose is not None:
+                        combined_payload["pose"] = frame_pose
+                    if frame_orientation is not None:
+                        combined_payload["orientation"] = frame_orientation
+                    mqtt_client.publish(combined_payload)
+                    last_mqtt_publish_time = current_time
+                    cv2.circle(annotated_frame, (30, 30), 10, (0, 255, 0), -1)
+                    cv2.putText(annotated_frame, "MQTT TX", (50, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                elif mqtt_client:
+                    cv2.circle(annotated_frame, (30, 30), 10, (255, 255, 0), -1)
+                    cv2.putText(annotated_frame, "MQTT IDLE", (50, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                else:
+                    cv2.circle(annotated_frame, (30, 30), 10, (0, 0, 255), -1)
+                    cv2.putText(annotated_frame, "NO MQTT", (50, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
 
         # Always update stream frame, even when there are no detections.

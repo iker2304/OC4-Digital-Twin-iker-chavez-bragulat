@@ -3,7 +3,7 @@ detection:
     models: 'data\models\CV\pose\train\weights\best.pt'
     output: "results/detections"      
 
-  source: 0 #"data/utils/oc4_nt2.mp4"
+  source: "data/utils/oc4.mp4"
   
   show_boxes: True
 

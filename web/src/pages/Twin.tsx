@@ -110,7 +110,7 @@ export default function Twin() {
           <button
             onClick={resetLayout}
             className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800"
-            title="Restaurar layout por defecto"
+            title="Restore default layout"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             Reset
@@ -119,19 +119,19 @@ export default function Twin() {
             <button
               onClick={saveLayout}
               className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
-              title="Guardar layout personalizado"
+              title="Save custom layout"
             >
               <Save className="w-3.5 h-3.5" />
-              Guardar
+              Save
             </button>
           ) : (
             <button
               onClick={() => setIsEditing(true)}
               className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-500"
-              title="Editar y redimensionar paneles"
+              title="Edit and resize panels"
             >
               <Edit3 className="w-3.5 h-3.5" />
-              Editar layout
+              Edit layout
             </button>
           )}
         </div>

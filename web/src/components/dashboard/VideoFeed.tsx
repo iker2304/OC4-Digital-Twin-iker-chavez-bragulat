@@ -35,7 +35,7 @@ export const VideoFeed = () => {
        )}
        {streamStatus === 'loading' ? (
          <div className="absolute inset-0 flex items-center justify-center text-gray-400 bg-black/40">
-           <p className="text-xs">Conectando a la cámara...</p>
+           <p className="text-xs">Connecting to camera...</p>
          </div>
        ) : null}
 

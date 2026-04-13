@@ -106,6 +106,9 @@ def on_mqtt_message(client, userdata, msg):
                         "id": kp_name
                     })
                 latest_twin_data["video"]["keypoints"] = kpts
+                if random.random() < 0.1: # 10% log rate
+                    ids = [k['id'] for k in kpts]
+                    print(f"MQTT: Received {len(kpts)} kpts. IDs: {', '.join(ids[:5])}... Hub: {'Hub' in ids}")
                 
         except Exception as e:
             print(f"Error processing MQTT message: {e}")

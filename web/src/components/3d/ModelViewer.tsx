@@ -1,6 +1,6 @@
 import { Suspense, useState, useRef, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Grid, Environment, useFBX, useGLTF, PerspectiveCamera, CameraControls, ContactShadows, Stars } from '@react-three/drei';
+import { Grid, Environment, useGLTF, PerspectiveCamera, CameraControls, ContactShadows, Stars } from '@react-three/drei';
 import { useTwinStore } from '../../store/twinStore';
 import * as THREE from 'three';
 import { Box, Eye, LayoutGrid, Monitor, Video } from 'lucide-react';
@@ -140,47 +140,49 @@ const LiveCameraController = ({ active }: { active: boolean }) => {
 // Component to handle static camera transitions
 const StaticCameraController = ({ view, active }: { view: CameraView, active: boolean }) => {
   const controlsRef = useRef<CameraControls>(null);
-  const config = VIEW_CONFIGS[view];
+  // Track which view was last applied so we only call setLookAt when view actually changes.
+  // Using useRef (not state) because we don't want a re-render, just a flag for useFrame.
+  const appliedView = useRef<CameraView | null>(null);
 
-  useEffect(() => {
-    if (active && controlsRef.current) {
+  useFrame(() => {
+    if (!active || !controlsRef.current) return;
+    // CameraControls is guaranteed to be initialised by the time useFrame runs,
+    // so this is more reliable than useEffect for Three.js objects.
+    if (appliedView.current !== view) {
+      const config = VIEW_CONFIGS[view];
       controlsRef.current.setLookAt(
         config.position[0], config.position[1], config.position[2],
         config.target[0], config.target[1], config.target[2],
-        true // animated
+        true // smooth animated transition
       );
+      appliedView.current = view;
     }
-  }, [view, active]);
+  });
 
   return <CameraControls ref={controlsRef} enabled={active} />;
 };
 
-// Component to handle different model types
-const ModelLoader = ({ url }: { url: string }) => {
-  const isGLB = url.endsWith('.glb') || url.endsWith('.gltf');
-  
-  if (isGLB) {
-    return <GLBModel url={url} />;
-  }
-  return <FBXModel url={url} />;
-};
-
-const GLBModel = ({ url }: { url: string }) => {
-  const { scene } = useGLTF(url);
+const GLBModel = ({ url, onModelLoaded }: { url: string; onModelLoaded?: (scene: THREE.Group) => void }) => {
+  const { scene, animations } = useGLTF(url);
   // Enable shadows
-  scene.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh) {
-      child.castShadow = true;
-      child.receiveShadow = true;
+  useEffect(() => {
+    if (scene) {
+      scene.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      if (animations && animations.length > 0) {
+        console.log('Model has animations:', animations.map(a => a.name));
+      }
+      if (onModelLoaded) onModelLoaded(scene);
     }
-  });
+  }, [scene, onModelLoaded, animations]);
+
   return <primitive object={scene} scale={1} />; 
 };
 
-const FBXModel = ({ url }: { url: string }) => {
-  const fbx = useFBX(url);
-  return <primitive object={fbx} scale={0.01} />; 
-};
 
 const LivePlatformController = ({
   targetRef,
@@ -275,8 +277,6 @@ const LivePlatformController = ({
         prevValidTarget.current.quaternion.copy(newTargetQuaternion);
       }
     } else if (prevValidTarget.current) {
-      // If it is an outlier, just keep the target as previous valid state
-      // (This will make the model stay in its last known good position/rotation)
       qTarget.current.copy(prevValidTarget.current.quaternion);
     }
 
@@ -291,9 +291,184 @@ const LivePlatformController = ({
   return null;
 };
 
+// Angular offsets for each blade colour within the rotor (120° apart).
+// blade_red is the reference blade (0°); the others are offset accordingly.
+const ROTOR_BLADE_OFFSETS: Record<string, number> = {
+  'blade_red':    0,
+  'blade_blue':   (2 * Math.PI) / 3,
+  'blade_yellow': (4 * Math.PI) / 3,
+};
+
+// Lerp two angles taking the shortest arc (avoids wrap-around jumps at ±π)
+function lerpAngleShortest(current: number, target: number, alpha: number): number {
+  let diff = target - current;
+  while (diff >  Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+  return current + diff * alpha;
+}
+
+const BladeController = ({ scene }: { scene: THREE.Group | null }) => {
+  const rotationNode = useRef<THREE.Object3D | null>(null);
+  const lastLoggedRef = useRef<number>(0);
+  // Two-stage smoothing: first filter the raw detected angle, then follow with the model
+  const smoothedAngleRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!scene) return;
+
+    const targetNames = [
+      'rotate', 'rotation', 'Hub', 'VIS_Hub', 'VIS_Hub_rotation', 'rotor', 'Rotor',
+      'Shaft', 'shaft', 'blade_parent', 'Armature', 'RootNode'
+    ];
+
+    let foundNode: THREE.Object3D | null = null;
+
+    // Exact name search (case-sensitive first, then case-insensitive)
+    for (const name of targetNames) {
+      const node = scene.getObjectByName(name);
+      if (node) {
+        foundNode = node;
+        break;
+      }
+    }
+
+    // Fuzzy search fallback
+    if (!foundNode) {
+      scene.traverse((child) => {
+        if (foundNode) return;
+        const lowerName = child.name.toLowerCase();
+        if (
+          lowerName === 'rotate' ||
+          lowerName === 'rotation' ||
+          lowerName === 'hub' ||
+          lowerName === 'rotor' ||
+          lowerName === 'shaft' ||
+          lowerName.includes('rotor') ||
+          lowerName.includes('hub_rot') ||
+          lowerName.includes('blade_root')
+        ) {
+          foundNode = child;
+        }
+      });
+    }
+
+    // If we found a "Hub" node but it's just a point (no children),
+    // we probably want its parent which likely contains the actual blade meshes.
+    if (foundNode && foundNode.name.toLowerCase().includes('hub') && foundNode.children.length === 0) {
+      if (foundNode.parent) {
+        console.log(`BladeController: Found ${foundNode.name} with no children, switching to parent ${foundNode.parent.name}`);
+        foundNode = foundNode.parent;
+      }
+    }
+
+    if (foundNode) {
+      console.log('BladeController: Target rotation node found:', foundNode.name);
+      rotationNode.current = foundNode;
+    } else {
+      console.warn('BladeController: No rotation/hub node found in model hierarchy.');
+      console.log('BladeController: Top level nodes:', scene.children.map(c => c.name));
+    }
+  }, [scene]);
+
+  useFrame((_state, delta) => {
+    const now = Date.now();
+    const shouldLog = now - lastLoggedRef.current > 5000;
+
+    if (!rotationNode.current) {
+      if (shouldLog) {
+        console.log('BladeController: Waiting for rotation node...');
+        lastLoggedRef.current = now;
+      }
+      return;
+    }
+
+    const { video } = useTwinStore.getState();
+
+    if (!video.keypoints || video.keypoints.length === 0) {
+      if (shouldLog) {
+        console.log('BladeController: No keypoints available');
+        lastLoggedRef.current = now;
+      }
+      return;
+    }
+
+    // Collect Rotor-class keypoints: blade_red_*, blade_blue_*, blade_yellow_*
+    const rotorKpts = video.keypoints.filter(k => {
+      const id = String(k.id).toLowerCase();
+      return id.startsWith('blade_red') || id.startsWith('blade_blue') || id.startsWith('blade_yellow');
+    });
+
+    if (rotorKpts.length === 0) {
+      if (shouldLog) {
+        console.log('BladeController: No Rotor keypoints (blade_red/blue/yellow) found');
+        lastLoggedRef.current = now;
+      }
+      return;
+    }
+
+    // Hub center = centroid of all Rotor keypoints
+    const hubX = rotorKpts.reduce((sum, k) => sum + k.x, 0) / rotorKpts.length;
+    const hubY = rotorKpts.reduce((sum, k) => sum + k.y, 0) / rotorKpts.length;
+
+    // Find a reference tip point to compute the rotor angle.
+    // Try outermost points first (_3 > _2 > _1) across all blade colours.
+    // Subtract each blade's angular offset so all three blades give the same rotor angle.
+    let targetAngle: number | null = null;
+
+    const suffixes = ['_3', '_2', '_1'];
+    const bladeGroups = Object.keys(ROTOR_BLADE_OFFSETS);
+
+    outer: for (const suffix of suffixes) {
+      for (const group of bladeGroups) {
+        const kptName = `${group}${suffix}`;
+        const kpt = rotorKpts.find(k => String(k.id).toLowerCase() === kptName);
+        if (kpt) {
+          // Raw image angle from hub to this keypoint (image Y is down → negate)
+          const rawAngle = Math.atan2(kpt.y - hubY, kpt.x - hubX);
+          const bladeOffset = ROTOR_BLADE_OFFSETS[group] ?? 0;
+          // Rotor reference angle = image angle of this blade minus its natural offset
+          targetAngle = rawAngle - bladeOffset;
+
+          if (shouldLog) {
+            console.log(
+              `BladeController: Rotor via ${kptName} — image angle=${rawAngle.toFixed(3)} rad, ` +
+              `offset=${bladeOffset.toFixed(3)} rad, rotate.z=${targetAngle.toFixed(3)} rad`
+            );
+            lastLoggedRef.current = now;
+          }
+          break outer;
+        }
+      }
+    }
+
+    if (targetAngle !== null) {
+      // Stage 1: low-pass filter on the raw detected angle to reduce keypoint noise
+      if (smoothedAngleRef.current === null) {
+        smoothedAngleRef.current = targetAngle;
+      } else {
+        smoothedAngleRef.current = lerpAngleShortest(
+          smoothedAngleRef.current,
+          targetAngle,
+          Math.min(1, delta * 4)   // ~6% convergence per frame @ 60fps → smoother input
+        );
+      }
+
+      // Stage 2: model follows the smoothed target (shortest arc, no wrap-around jump)
+      rotationNode.current.rotation.z = lerpAngleShortest(
+        rotationNode.current.rotation.z,
+        smoothedAngleRef.current,
+        Math.min(1, delta * 3)     // ~5% convergence per frame @ 60fps → fluid following
+      );
+    }
+  });
+
+  return null;
+};
+
 const OC4Platform = ({ liveViewActive, editMode, showAxes }: { liveViewActive: boolean, editMode?: boolean, showAxes: boolean }) => {
   const MODEL_URL = '/models/OC4.glb'; 
   const groupRef = useRef<THREE.Group>(null);
+  const [scene, setScene] = useState<THREE.Group | null>(null);
 
   return (
     <group 
@@ -302,7 +477,8 @@ const OC4Platform = ({ liveViewActive, editMode, showAxes }: { liveViewActive: b
     >
       <LivePlatformController targetRef={groupRef} active={!liveViewActive && !!editMode} />
       <group rotation={[-Math.PI / 2, 0, 0]}>
-        <ModelLoader url={MODEL_URL} />
+        <GLBModel url={MODEL_URL} onModelLoaded={setScene} />
+        <BladeController scene={scene} />
         {/* Helper axes to visualize object orientation */}
         {showAxes && <axesHelper args={[2]} />}
       </group>
@@ -332,7 +508,7 @@ export const ModelViewer = ({ editMode = false }: { editMode?: boolean }) => {
         {/* Dropdown Menu */}
         {isMenuOpen && (
           <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-lg shadow-xl p-1 flex flex-col gap-1 min-w-[140px] animate-in fade-in slide-in-from-top-2 z-50">
-            <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Cámara</div>
+            <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Camera</div>
             {(Object.keys(VIEW_CONFIGS) as CameraView[]).map((view) => {
               const config = VIEW_CONFIGS[view];
               const Icon = config.icon;
@@ -360,7 +536,7 @@ export const ModelViewer = ({ editMode = false }: { editMode?: boolean }) => {
 
       {/* Floating Display Settings */}
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 p-3 rounded-lg shadow-xl">
-        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Visualización</div>
+        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Visualization</div>
         <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
           <input 
             type="checkbox" 
@@ -368,7 +544,7 @@ export const ModelViewer = ({ editMode = false }: { editMode?: boolean }) => {
             onChange={(e) => setShowGrid(e.target.checked)} 
             className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900 w-4 h-4 cursor-pointer" 
           />
-          Mostrar Rejilla
+          Show Grid
         </label>
         <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
           <input 
@@ -377,7 +553,7 @@ export const ModelViewer = ({ editMode = false }: { editMode?: boolean }) => {
             onChange={(e) => setShowAxes(e.target.checked)} 
             className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900 w-4 h-4 cursor-pointer" 
           />
-          Mostrar Ejes
+          Show Axes
         </label>
       </div>
 
