@@ -68,6 +68,7 @@ src/upload_to_hf.py
 src/regenerate_labels.pyru
 src/generate_comparison.py
 utils/scripts/geometry/verify_pnp.py
+utils/scripts/dataset
 verify_pnp.py
 pose_detection_kalman.pya
 expand_*
