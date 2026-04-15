@@ -69,4 +69,5 @@ src/regenerate_labels.pyru
 src/generate_comparison.py
 utils/scripts/geometry/verify_pnp.py
 verify_pnp.py
-pose_detection_kalman.py
+pose_detection_kalman.pya
+expand_*

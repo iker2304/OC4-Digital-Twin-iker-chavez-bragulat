@@ -557,6 +557,13 @@ def main(cfg: DictConfig) -> None:
         next_frame_time += frame_interval_s
 
         ret, frame = cap.read()
+        
+        # Loop video files automatically
+        if not ret and isinstance(source, str) and not source.startswith(('http://', 'https://', 'rtsp://')) and source != "mobile":
+            if hasattr(cap, 'set'):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                ret, frame = cap.read()
+
         if not ret:
             consecutive_read_failures += 1
             # Create a placeholder "No Signal" frame if camera fails

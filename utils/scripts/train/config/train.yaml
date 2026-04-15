@@ -2,12 +2,12 @@ paths:
   dataset: "data/synthetic_dataset/yolo_ready"
 
 config:
-  model: "yolo26s-pose.pt" # Custom model found in project root
+  model: "data/models/CV/pose/train/weights/best.pt" 
   resume: False
-  epochs: 150
+  epochs: 100
   imgsz: 640
-  batch_size: 32 # Increased if GPU allows, adjust to 8 if OOM
-  lr0: 0.01 # Standard starting LR
+  batch_size: 16 #
+  lr0: 0.01 
   dataset:
     train_ratio: 0.8
   images_extensions: ['.png', '.jpg', '.jpeg']
@@ -26,7 +26,7 @@ Augmentations:
   mosaic: 0
 
 Optimization_and_Hardware: 
-  workers: 4
+  workers: 8 
   cos_lr: True
   cache: ram 
 
