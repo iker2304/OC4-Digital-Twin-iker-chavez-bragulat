@@ -10,10 +10,35 @@ import numpy as np
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import socketserver
+
+class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+    """Handle requests in separate threads."""
+    daemon_threads = True
 
 # Global variables for streaming
+# Initialize with a placeholder to prevent browser timeouts
 output_frame = None
+
+def create_placeholder(text="Initializing..."):
+    import numpy as np
+    import cv2
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+    cv2.putText(img, text, (180, 240), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200, 200, 200), 2)
+    _, buffer = cv2.imencode('.jpg', img)
+    return buffer.tobytes()
+
+output_frame = create_placeholder()
 lock = threading.Lock()
+
+# Shared state for camera source switching from the MJPEG server
+_requested_source = None
+_source_change_event = threading.Event()
+_source_lock = threading.Lock()
+_current_source = 0
+# Tracks whether the last switch succeeded or was reverted to a fallback source.
+# Exposed via /current_source so the frontend can detect failed switches.
+_switch_failed = False  # True if last switch attempt could not open the target camera
 
 
 class CameraCapture:
@@ -52,8 +77,17 @@ class CameraCapture:
 
     def release(self):
         self._running = False
+        # Do a dummy read to unblock if it's somehow stuck (unlikely but safe)
         self._thread.join(timeout=2.0)
+        
+        # Only release cap after ensuring the thread isn't about to read from it
         self._cap.release()
+        
+        # Give macOS AVFoundation a moment to free the camera device
+        # before the caller tries to open another one.
+        if sys.platform == "darwin":
+            import time
+            time.sleep(0.5)
 
     def get(self, prop):
         return self._cap.get(prop)
@@ -64,34 +98,153 @@ class CameraCapture:
 
 
 class MJPEGServer(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Suppress per-request logs to avoid noise
+        pass
+
+    def _parse_query(self):
+        """Return a dict of query parameters from self.path."""
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        return parsed.path, {k: v[0] for k, v in qs.items()}
+
     def do_GET(self):
-        if self.path == '/video_feed':
+        global _requested_source, _current_source, output_frame
+        path, params = self._parse_query()
+        client_ip = self.client_address[0]
+
+        if path == '/video_feed':
+            print(f"[NET] Connection request for /video_feed from {client_ip}")
+            # Limit to cameras 0-4
+            allowed_sources = [0, 1, 2, 3, 4]
+            if 'source' in params:
+                try:
+                    requested = int(params['source'])
+                    if requested in allowed_sources:
+                        with _source_lock:
+                            if requested != _current_source:
+                                print(f"[CAM] Switch requested via URL to {requested}")
+                                _requested_source = requested
+                                _source_change_event.set()
+                except ValueError:
+                    pass  # non-integer source – ignore
+
             self.send_response(200)
-            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
+            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             try:
+                # Track the source this connection was established for
+                with _source_lock:
+                    my_source = _current_source
+
+                last_sent_frame = None
                 while True:
+                    # If the camera source has changed globally, terminate this old stream
+                    # so the browser is forced to drop it and avoid connection limits.
+                    with _source_lock:
+                        if _current_source != my_source:
+                            print(f"[NET] Terminating old video_feed for source {my_source} (now {_current_source})")
+                            break
+
                     with lock:
-                        if output_frame is None:
-                            time.sleep(0.01) # Reduce sleep time
-                            continue
-                        frame_data = output_frame
+                        if output_frame is not None:
+                            last_sent_frame = output_frame
+                        frame_curr = last_sent_frame
+
+                    if frame_curr:
+                        # Leading \r\n--frame ensures browsers decode the first frame correctly
+                        self.wfile.write(b'\r\n--frame\r\n')
+                        self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                        self.wfile.write(f'Content-Length: {len(frame_curr)}\r\n\r\n'.encode())
+                        self.wfile.write(frame_curr)
+                        self.wfile.write(b'\r\n')
+                        self.wfile.flush()
                     
-                    self.wfile.write(b'--frame\r\n')
-                    self.wfile.write(b'Content-Type: image/jpeg\r\n\r\n')
-                    self.wfile.write(frame_data)
-                    self.wfile.write(b'\r\n')
-                    time.sleep(0.01) # Reduce sleep time for higher FPS
-            except Exception as e:
+                    time.sleep(0.04)
+            except Exception:
                 pass
+
+        elif path == '/health':
+            body = b'{"status": "ok"}'
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif path == '/current_source':
+            import json as _json
+            with _source_lock:
+                body = _json.dumps({
+                    'source': _current_source,
+                    'switch_failed': _switch_failed,
+                }).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(body)
+
         else:
             self.send_response(404)
             self.end_headers()
 
+    def do_POST(self):
+        """Handle POST /switch_source  body: {"source": N}"""
+        global _requested_source, _current_source
+        from urllib.parse import urlparse
+        path = urlparse(self.path).path
+
+        if path == '/switch_source':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body_bytes = self.rfile.read(length) if length > 0 else b'{}'
+                import json as _json
+                data = _json.loads(body_bytes.decode())
+                new_src = int(data.get('source', -1))
+                allowed_sources = [0, 1, 2, 3, 4]
+                if new_src in allowed_sources:
+                    with _source_lock:
+                        if new_src != _current_source:
+                            print(f"[CAM] Switch requested via POST to {new_src}")
+                            _requested_source = new_src
+                            _source_change_event.set()
+                    resp = _json.dumps({'ok': True, 'source': new_src}).encode()
+                    self.send_response(200)
+                else:
+                    resp = _json.dumps({'ok': False, 'error': 'invalid source (use 0-2)'}).encode()
+                    self.send_response(400)
+            except Exception as e:
+                resp = str(e).encode()
+                self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(resp)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(resp)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_OPTIONS(self):
+        """CORS preflight for POST /switch_source"""
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
 def start_stream_server(port=8001):
     try:
-        server = HTTPServer(('0.0.0.0', port), MJPEGServer)
-        print(f"MJPEG Streaming Server started on port {port}")
+        server = ThreadedHTTPServer(('0.0.0.0', port), MJPEGServer)
+        print(f"MJPEG Streaming Server started on port {port} (Threading Enabled)")
         server.serve_forever()
     except Exception as e:
         print(f"Failed to start streaming server: {e}")
@@ -192,7 +345,7 @@ def get_latest_model(path):
 
 @hydra.main(config_path="config", config_name="detection", version_base=None)
 def main(cfg: DictConfig) -> None:
-    global output_frame
+    global output_frame, _current_source, _switch_failed
     # Ensure path compatibility (handle Windows backslashes on non-Windows systems)
     model_path = cfg.detection.paths.models
     if isinstance(model_path, str):
@@ -332,16 +485,28 @@ def main(cfg: DictConfig) -> None:
         try:
             # Main topic for publishing pose
             mqtt_client = MqttClient(cfg.mqtt.broker, cfg.mqtt.port, cfg.mqtt.topic)
-            # Subscribe to config topic
+            # Subscribe to config topic separately
             mqtt_client.client.subscribe("oc4/config")
-            mqtt_client.on_message_callback = on_config_message
+            # Only call on_config_message for oc4/config messages, not oc4/pose
+            _orig_on_message = mqtt_client.client.on_message
+            def _filtered_on_message(client, userdata, msg):
+                if msg.topic == "oc4/config":
+                    try:
+                        data = json.loads(msg.payload.decode())
+                        on_config_message(data)
+                    except Exception as e:
+                        print(f"Error in config MQTT callback: {e}")
+            mqtt_client.client.on_message = _filtered_on_message
             print(f"MQTT client connected. Listening for config on 'oc4/config'")
         except Exception as e:
             print(f"WARNING: Failed to connect to MQTT broker: {e}")
             mqtt_client = None
 
     source = current_cfg["camera_source"]
-    
+    # Keep global source tracker in sync from the start
+    with _source_lock:
+        _current_source = source if isinstance(source, int) else -1
+
     if isinstance(source, int):
         print(f"Starting real-time detection (Camera {source})...")
     else:
@@ -385,9 +550,23 @@ def main(cfg: DictConfig) -> None:
             return CameraCapture(raw_cap)
         return cv2.VideoCapture(src)
 
+    def capture_has_signal(capture, timeout_s=1.5):
+        """Return True only when the source provides at least one valid frame."""
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            try:
+                ret, frame = capture.read()
+            except Exception:
+                ret, frame = False, None
+            if ret and frame is not None and getattr(frame, "size", 0) > 0:
+                return True
+            time.sleep(0.03)
+        return False
+
     cap = open_capture(source)
-    if not cap.isOpened():
-        print(f"Error: Could not open video source {source}")
+    if not cap.isOpened() or not capture_has_signal(cap):
+        print(f"Error: Could not open video source {source} with valid frames")
+        cap.release()
         return
 
     # Get source FPS for correct playback speed
@@ -409,6 +588,8 @@ def main(cfg: DictConfig) -> None:
     last_mqtt_publish_time = 0
     mqtt_publish_interval = 0.1 
     consecutive_read_failures = 0
+    last_stable_source = source
+    no_signal_failover_threshold = 60
 
     def ensure_recording_dir():
         nonlocal recording_dir
@@ -496,6 +677,17 @@ def main(cfg: DictConfig) -> None:
         loop_start_time = time.time()
         restart_now = False
         next_source = None
+
+        # Check for camera change requested via MJPEG ?source= URL parameter
+        if _source_change_event.is_set():
+            _source_change_event.clear()
+            with _source_lock:
+                web_source = _requested_source
+            if web_source is not None and web_source != current_cfg["camera_source"]:
+                with cfg_lock:
+                    current_cfg["camera_source"] = web_source
+                    camera_restart_requested = True
+
         with cfg_lock:
             if camera_restart_requested:
                 restart_now = True
@@ -504,39 +696,53 @@ def main(cfg: DictConfig) -> None:
 
         if restart_now and next_source != source:
             old_source = source
+            print(f"[CAM] Releasing camera {old_source} to switch to {next_source}...")
+            # Clear any previous failure flag while the switch is in progress
+            with _source_lock:
+                _switch_failed = False
             cap.release()
+            # Extra pause after release so AVFoundation frees the device fully
+            time.sleep(0.5)
 
             cap = open_capture(next_source)
-            if cap.isOpened():
+            if cap.isOpened() and capture_has_signal(cap):
                 source = next_source
+                last_stable_source = old_source
                 consecutive_read_failures = 0
-                
+                # Keep global _current_source in sync; clear any previous failure flag
+                with _source_lock:
+                    _current_source = source if isinstance(source, int) else -1
+                    _switch_failed = False
+
                 # Update FPS for new source
                 source_fps = cap.get(cv2.CAP_PROP_FPS)
                 if source_fps <= 0 or np.isnan(source_fps):
                     source_fps = 30.0
                 frame_interval_s = 1.0 / source_fps
-                if current_cfg["recording_fps"] <= 0: # Update recording fps if not forced
+                if current_cfg["recording_fps"] <= 0:  # Update recording fps if not forced
                     current_cfg["recording_fps"] = source_fps
-                
+
                 start_time_wall = time.time()
                 next_frame_time = start_time_wall
                 frame_indx = 0
 
                 if isinstance(source, int):
-                    print(f"Switched to camera source: Camera {source} (FPS: {source_fps:.2f})")
+                    print(f"[CAM] Switched to Camera {source} (FPS: {source_fps:.2f})")
                 else:
-                    print(f"Switched to camera source: {source} (FPS: {source_fps:.2f})")
+                    print(f"[CAM] Switched to source: {source} (FPS: {source_fps:.2f})")
             else:
+                print(f"[CAM] Could not open camera {next_source} with valid frames. Reverting to {old_source}.")
                 cap.release()
+                time.sleep(0.5)  # wait before reopening old camera
                 cap = open_capture(old_source)
                 source = old_source
                 with cfg_lock:
                     current_cfg["camera_source"] = old_source
-                if cap.isOpened():
-                    print(f"Error: Could not open video source {next_source}. Reverted to {old_source}.")
-                else:
-                    print(f"Error: Could not reopen previous video source {old_source}.")
+                with _source_lock:
+                    _current_source = old_source if isinstance(old_source, int) else -1
+                    _switch_failed = True  # tell the frontend the switch was rejected
+                if not cap.isOpened() or not capture_has_signal(cap):
+                    print(f"[CAM] Error: Could not reopen previous video source {old_source}. Stopping.")
                     break
 
         # Frame-skip logic only applies to file sources; live cameras (CameraCapture)
@@ -566,34 +772,66 @@ def main(cfg: DictConfig) -> None:
 
         if not ret:
             consecutive_read_failures += 1
+
+            # If a newly selected camera starts failing continuously, roll back
+            # to the last stable camera to keep the live feed alive.
+            if (
+                consecutive_read_failures >= no_signal_failover_threshold
+                and isinstance(source, int)
+                and isinstance(last_stable_source, int)
+                and last_stable_source != source
+            ):
+                fallback_source = last_stable_source
+                print(
+                    f"[CAM] Source {source} has no signal for {consecutive_read_failures} reads. "
+                    f"Failing back to {fallback_source}."
+                )
+                cap.release()
+                time.sleep(0.5)
+                fallback_cap = open_capture(fallback_source)
+                if fallback_cap.isOpened() and capture_has_signal(fallback_cap):
+                    cap = fallback_cap
+                    source = fallback_source
+                    consecutive_read_failures = 0
+                    with cfg_lock:
+                        current_cfg["camera_source"] = fallback_source
+                    with _source_lock:
+                        _current_source = fallback_source
+                        _switch_failed = True
+
+                    source_fps = cap.get(cv2.CAP_PROP_FPS)
+                    if source_fps <= 0 or np.isnan(source_fps):
+                        source_fps = 30.0
+                    frame_interval_s = 1.0 / source_fps
+                    start_time_wall = time.time()
+                    next_frame_time = start_time_wall
+                    frame_indx = 0
+                    continue
+                else:
+                    fallback_cap.release()
+                    print(f"[CAM] Failover to {fallback_source} failed. Staying on {source}.")
+                    cap = open_capture(source)
+                    consecutive_read_failures = 0
+
             # Create a placeholder "No Signal" frame if camera fails
             placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(placeholder, "No Camera Signal", (150, 240), 
+            cv2.putText(placeholder, "No Camera Signal", (150, 240),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
-            cv2.putText(placeholder, f"Retrying... ({consecutive_read_failures})", (150, 280), 
+            cv2.putText(placeholder, f"Retrying... ({consecutive_read_failures})", (150, 280),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-            
+
             with lock:
                 ret_enc, buffer = cv2.imencode('.jpg', placeholder)
                 if ret_enc:
                     output_frame = buffer.tobytes()
-            
-            if consecutive_read_failures % 30 == 0:
-                print(f"Warning: Camera read failed {consecutive_read_failures} times. Retrying connection...")
-                cap.release()
-                time.sleep(2)
-                # Try to alternate between 0 and 1 if it's an integer source
-                if isinstance(source, int):
-                    new_src = 1 if source == 0 else 0
-                    print(f"Switching from camera {source} to {new_src} to see if it works...")
-                    cap = open_capture(new_src)
-                    # We don't update 'source' globally to keep the original intent, but we try the alternative
-                else:
-                    cap = open_capture(source)
-            
-            time.sleep(0.1)
-            continue
-        
+
+            # Keep polling for source-change requests while waiting so the user
+            # can escape a dead camera by selecting a different one. Do NOT call
+            # cap.release() here — that would corrupt _current_source tracking and
+            # break the stream for every other camera index.
+            time.sleep(0.05)  # shorter wait so picker changes are processed quickly
+            continue  # skip the rest of the loop — frame is invalid
+
         consecutive_read_failures = 0
 
         if current_cfg["recording"] and not recording_active:
@@ -846,7 +1084,7 @@ def main(cfg: DictConfig) -> None:
                 with lock:
                     output_frame = buffer.tobytes()
         except Exception as e:
-            print(f"Error encoding frame: {e}")
+            print(f"Error encoding frame for MJPEG: {e}")
 
         if recording_active and recording_start_time is not None:
             now_ts = time.time()

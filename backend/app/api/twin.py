@@ -138,15 +138,27 @@ def list_cameras(max_index: int = 10):
     seen_any_available = False
     consecutive_unavailable = 0
 
+    def has_signal(cap: cv2.VideoCapture, attempts: int = 5) -> bool:
+        """Treat 'open but no frame' cameras as unavailable."""
+        for _ in range(attempts):
+            ok, frame = cap.read()
+            if ok and frame is not None and getattr(frame, "size", 0) > 0:
+                return True
+            time.sleep(0.03)
+        return False
+
     for idx in range(max_index + 1):
         ok = False
         try:
             cap = cv2.VideoCapture(idx, backend)
-            ok = cap.isOpened()
+            if cap.isOpened():
+                ok = has_signal(cap)
             cap.release()
         except Exception:
             ok = False
 
+        # If no camera has been positively confirmed yet, keep status as unknown
+        # so the UI doesn't hard-block all sources when devices are busy.
         status = "available" if ok else ("unavailable" if seen_any_available else "unknown")
         cameras.append({"index": idx, "status": status})
 

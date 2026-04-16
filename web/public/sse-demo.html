@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSE Config Sync Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      margin: 0;
+      padding: 2rem;
+      min-height: 100vh;
+    }
+
+    h1 { margin-top: 0; color: #38bdf8; font-size: 1.5rem; }
+    h2 { color: #7dd3fc; font-size: 1.1rem; margin-bottom: .5rem; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      max-width: 960px;
+    }
+
+    section {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 1.25rem;
+    }
+
+    label { display: block; font-size: .85rem; color: #94a3b8; margin-bottom: .25rem; }
+
+    input, textarea {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #e2e8f0;
+      padding: .5rem .75rem;
+      font-size: .9rem;
+      margin-bottom: .75rem;
+      font-family: monospace;
+    }
+
+    textarea { resize: vertical; height: 120px; }
+
+    button {
+      padding: .5rem 1.25rem;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: .9rem;
+      font-weight: 600;
+      transition: opacity .15s;
+    }
+    button:hover { opacity: .85; }
+    button:disabled { opacity: .45; cursor: default; }
+
+    .btn-primary { background: #0ea5e9; color: #fff; }
+    .btn-danger  { background: #ef4444; color: #fff; }
+    .btn-success { background: #22c55e; color: #fff; }
+
+    #status-dot {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      background: #475569;
+      vertical-align: middle;
+    }
+    #status-dot.connected    { background: #22c55e; }
+    #status-dot.disconnected { background: #ef4444; }
+    #status-dot.error        { background: #f59e0b; }
+
+    #log {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: .75rem;
+      font-family: monospace;
+      font-size: .8rem;
+      height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    .log-entry { margin-bottom: 2px; }
+    .log-ts  { color: #475569; }
+    .log-in  { color: #38bdf8; }
+    .log-out { color: #a78bfa; }
+    .log-err { color: #f87171; }
+    .log-inf { color: #94a3b8; }
+
+    #current-config {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: .75rem;
+      font-family: monospace;
+      font-size: .8rem;
+      min-height: 80px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .row { display: flex; gap: .5rem; align-items: flex-end; }
+    .row button { margin-bottom: .75rem; }
+
+    .badge {
+      display: inline-block;
+      font-size: .75rem;
+      padding: .2rem .5rem;
+      border-radius: 4px;
+      background: #334155;
+      color: #94a3b8;
+      margin-left: .5rem;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <h1>SSE Config Sync &mdash; Real-time across browser tabs</h1>
+
+  <div class="grid">
+    <!-- ── Authentication ──────────────────────────── -->
+    <section>
+      <h2>1. Authenticate</h2>
+      <label>API base URL</label>
+      <input id="base-url" type="text" value="http://localhost:8000" />
+
+      <label>Email</label>
+      <input id="email" type="email" placeholder="user@example.com" />
+
+      <label>Password</label>
+      <input id="password" type="password" placeholder="••••••••" />
+
+      <div class="row">
+        <button class="btn-primary" onclick="doLogin()">Login</button>
+        <button class="btn-success" id="connect-btn" onclick="connectSSE()" disabled>Connect SSE</button>
+        <button class="btn-danger"  id="disconnect-btn" onclick="disconnectSSE()" disabled>Disconnect</button>
+      </div>
+
+      <div>
+        <span id="status-dot"></span>
+        <span id="status-text">Not connected</span>
+        <span id="token-badge" class="badge" style="display:none">token ✓</span>
+      </div>
+    </section>
+
+    <!-- ── Send update ─────────────────────────────── -->
+    <section>
+      <h2>2. Send Config Update</h2>
+      <label>Config JSON (edit freely)</label>
+      <textarea id="config-input">{
+  "theme": "dark",
+  "language": "en",
+  "notifications": true,
+  "refreshRate": 30
+}</textarea>
+      <button class="btn-primary" id="send-btn" onclick="sendConfig()" disabled>
+        POST /update-config
+      </button>
+    </section>
+
+    <!-- ── Received config ────────────────────────── -->
+    <section>
+      <h2>Live config <small style="font-weight:400;color:#64748b">(updated by SSE)</small></h2>
+      <div id="current-config">Waiting for events…</div>
+    </section>
+
+    <!-- ── Event log ──────────────────────────────── -->
+    <section>
+      <h2>Event Log</h2>
+      <div id="log"></div>
+    </section>
+  </div>
+
+  <script>
+    // ── State ─────────────────────────────────────────────────────────────
+    let token  = null;
+    let es     = null;   // EventSource
+
+    // ── DOM helpers ───────────────────────────────────────────────────────
+    const $  = id => document.getElementById(id);
+    const ts = () => new Date().toLocaleTimeString();
+
+    function log(msg, cls = 'log-inf') {
+      const el = document.createElement('div');
+      el.className = 'log-entry';
+      el.innerHTML = `<span class="log-ts">[${ts()}]</span> <span class="${cls}">${escHtml(msg)}</span>`;
+      $('log').appendChild(el);
+      $('log').scrollTop = $('log').scrollHeight;
+    }
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function setStatus(state, text) {
+      $('status-dot').className = state;
+      $('status-text').textContent = text;
+    }
+
+    function updateConfigDisplay(cfg) {
+      $('current-config').textContent = JSON.stringify(cfg, null, 2);
+    }
+
+    // ── Login ─────────────────────────────────────────────────────────────
+    async function doLogin() {
+      const base = $('base-url').value.replace(/\/$/, '');
+      const email = $('email').value.trim();
+      const pwd   = $('password').value;
+      if (!email || !pwd) { log('Enter email + password', 'log-err'); return; }
+
+      log(`POST ${base}/api/auth/login …`, 'log-out');
+      try {
+        // Backend uses OAuth2PasswordRequestForm (form-encoded)
+        const body = new URLSearchParams({ username: email, password: pwd });
+        const res  = await fetch(`${base}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+
+        token = data.access_token;
+        $('token-badge').style.display = '';
+        $('connect-btn').disabled = false;
+        $('send-btn').disabled    = false;
+        log(`Logged in. Token acquired.`, 'log-inf');
+      } catch (err) {
+        log(`Login failed: ${err.message}`, 'log-err');
+      }
+    }
+
+    // ── SSE connection ────────────────────────────────────────────────────
+    function connectSSE() {
+      if (es) { log('Already connected', 'log-inf'); return; }
+      if (!token) { log('Login first', 'log-err'); return; }
+
+      const base = $('base-url').value.replace(/\/$/, '');
+      const url  = `${base}/api/sse/events?token=${encodeURIComponent(token)}`;
+      log(`Connecting to SSE … ${url}`, 'log-out');
+
+      es = new EventSource(url);
+
+      es.addEventListener('config_update', e => {
+        let payload;
+        try { payload = JSON.parse(e.data); } catch { payload = e.data; }
+        log(`← config_update (${payload.source})  ${payload.timestamp}`, 'log-in');
+        if (payload.config) updateConfigDisplay(payload.config);
+      });
+
+      es.onopen = () => {
+        setStatus('connected', 'Connected');
+        $('disconnect-btn').disabled = false;
+        $('connect-btn').disabled    = true;
+        log('SSE stream open ✓', 'log-inf');
+      };
+
+      es.onerror = err => {
+        setStatus('error', 'Error / reconnecting…');
+        log('SSE error – browser will auto-reconnect', 'log-err');
+      };
+    }
+
+    function disconnectSSE() {
+      if (es) { es.close(); es = null; }
+      setStatus('disconnected', 'Disconnected');
+      $('connect-btn').disabled    = false;
+      $('disconnect-btn').disabled = true;
+      log('SSE stream closed', 'log-inf');
+    }
+
+    // ── Send config ───────────────────────────────────────────────────────
+    async function sendConfig() {
+      if (!token) { log('Login first', 'log-err'); return; }
+      const base = $('base-url').value.replace(/\/$/, '');
+
+      let config;
+      try { config = JSON.parse($('config-input').value); }
+      catch(e) { log(`Invalid JSON: ${e.message}`, 'log-err'); return; }
+
+      log(`POST ${base}/api/sse/update-config`, 'log-out');
+      try {
+        const res  = await fetch(`${base}/api/sse/update-config`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify(config),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        log(`→ sent to ${data.recipients} client(s)  ${data.timestamp}`, 'log-out');
+      } catch(err) {
+        log(`Send failed: ${err.message}`, 'log-err');
+      }
+    }
+  </script>
+</body>
+</html>

@@ -7,6 +7,7 @@ from app.api.dataset import router as dataset_router
 from app.api.persist import router as persist_router
 from app.api.auth import router as auth_router
 from app.api.flow_router import router as flow_router
+from app.api.sse import router as sse_router
 
 app = FastAPI()
 
@@ -25,3 +26,4 @@ app.include_router(dataset_router, prefix="/dataset", tags=["dataset"])
 app.include_router(persist_router, prefix="/persist", tags=["persist"])
 app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(flow_router, prefix="/api/flow", tags=["flow"])
+app.include_router(sse_router, prefix="/api", tags=["sse"])

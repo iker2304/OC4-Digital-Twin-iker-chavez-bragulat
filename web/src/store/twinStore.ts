@@ -27,6 +27,7 @@ interface TwinStore extends TwinState {
   updateConfig: (config: TwinConfigUpdate) => void;
   cameraSource: number | string;
   setCameraSource: (source: number | string) => void;
+  revertCameraSource: (source: number | string) => void;
   
   // Environmental State
   envConditions: EnvironmentalConditions;
@@ -223,6 +224,27 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
   },
   setCameraSource: (source) => {
     set({ cameraSource: source });
+    // Primary path: POST directly to the MJPEG detection server.
+    // This is the most reliable path — it works even if the backend
+    // WebSocket or MQTT are not running.
+    if (typeof source === 'number') {
+      fetch('http://127.0.0.1:8001/switch_source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source }),
+      }).catch(() => {
+        // Server might not be running yet — ignore silently;
+        // the URL ?source= param will still trigger it when the
+        // browser loads the new MJPEG URL.
+      });
+    }
+    // Secondary path: notify via WebSocket → MQTT so the backend
+    // pipeline_runner also knows.
     get().updateConfig({ camera_source: source });
+  },
+  // Updates the local store only — used when the backend reports a failed switch
+  // and has already reverted to a previous source. No POST is sent to avoid loops.
+  revertCameraSource: (source) => {
+    set({ cameraSource: source });
   },
 }));
