@@ -17,7 +17,23 @@ try:
     YOLO_AVAILABLE = True
 except ImportError:
     YOLO_AVAILABLE = False
-    print("[FlowExecutor] Warning: ultralytics not installed. AI inference will be disabled.")
+    print("[FlowExecutor] Warning: ultralytics not installed. YOLO (.pt) inference will be disabled.")
+
+try:
+    import onnxruntime as ort
+
+    ONNX_AVAILABLE = True
+except ImportError:
+    ONNX_AVAILABLE = False
+    print("[FlowExecutor] Warning: onnxruntime not installed. ONNX inference will be disabled.")
+
+try:
+    from app.mqtt import manager as mqtt_mgr
+
+    MQTT_AVAILABLE = True
+except ImportError:
+    MQTT_AVAILABLE = False
+    print("[FlowExecutor] Warning: MQTT manager not available.")
 
 
 logger = logging.getLogger("app.flow_executor")
@@ -32,6 +48,71 @@ def _coerce_float(value: Any, default: float) -> float:
 
 def _basename(path: str) -> str:
     return os.path.basename(path) if path else ""
+
+
+class CameraReader:
+    """Live webcam/camera capture using OpenCV."""
+
+    def __init__(self, camera_index: int = 0):
+        self.camera_index = camera_index
+        self.cap = None
+        self.frame_count = 0
+        self.width = 0
+        self.height = 0
+        self.fps = 0.0
+        self.last_error: Optional[str] = None
+        self.last_read_ms = 0.0
+        self._open()
+
+    def _open(self):
+        if self.cap:
+            self.cap.release()
+        self.cap = None
+        self.last_error = None
+        try:
+            self.cap = cv2.VideoCapture(self.camera_index)
+            if not self.cap.isOpened():
+                self.last_error = f"Cannot open camera index {self.camera_index}"
+                self.cap.release()
+                self.cap = None
+                return
+            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            self.fps = float(self.cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            logger.info("[FlowExecutor] Camera opened index=%s resolution=%sx%s fps=%.2f", self.camera_index, self.width, self.height, self.fps)
+        except Exception as exc:
+            self.last_error = str(exc)
+            self.cap = None
+
+    def read_frame(self):
+        started = time.perf_counter()
+        if not self.cap or not self.cap.isOpened():
+            return None
+        ret, frame = self.cap.read()
+        self.last_read_ms = (time.perf_counter() - started) * 1000
+        if not ret:
+            self.last_error = f"Failed to read frame from camera {self.camera_index}"
+            return None
+        self.frame_count += 1
+        return frame
+
+    def get_info(self):
+        return {
+            "camera_index": self.camera_index,
+            "frame_count": self.frame_count,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "resolution": f"{self.width}x{self.height}" if self.width and self.height else "unknown",
+            "is_open": bool(self.cap and self.cap.isOpened()),
+            "last_error": self.last_error,
+            "capture_latency_ms": round(self.last_read_ms, 3),
+        }
+
+    def release(self):
+        if self.cap:
+            self.cap.release()
+            self.cap = None
 
 
 class VideoReader:
@@ -315,6 +396,154 @@ class YOLOModel:
             }
 
 
+class ONNXModel:
+    """Generic ONNX Runtime inference wrapper.
+
+    Supports both object-detection (YOLOv8/v11 ONNX export) and arbitrary
+    single-input models.  When the output shape matches a known YOLO layout the
+    result is returned as structured predictions; otherwise raw tensors are
+    returned so downstream js_script nodes can handle them.
+    """
+
+    def __init__(self, model_path: str, device: Optional[str] = None):
+        self.model_path = model_path
+        self.device = device
+        self.session = None
+        self.input_name: str = ""
+        self.input_shape: List[int] = []
+        self.output_names: List[str] = []
+        self.last_error: Optional[str] = None
+        self._load()
+
+    def _load(self):
+        self.last_error = None
+        if not ONNX_AVAILABLE:
+            self.last_error = "onnxruntime is not installed"
+            return
+        if not os.path.exists(self.model_path):
+            self.last_error = f"Model file not found: {self.model_path}"
+            return
+        try:
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if self.device in ("cuda", "gpu") else ["CPUExecutionProvider"]
+            self.session = ort.InferenceSession(self.model_path, providers=providers)
+            inp = self.session.get_inputs()[0]
+            self.input_name = inp.name
+            self.input_shape = list(inp.shape)
+            self.output_names = [o.name for o in self.session.get_outputs()]
+            logger.info("[FlowExecutor] ONNX model loaded path=%s input=%s outputs=%s", self.model_path, self.input_shape, self.output_names)
+        except Exception as exc:
+            self.last_error = str(exc)
+            logger.exception("[FlowExecutor] Error loading ONNX model path=%s", self.model_path)
+            self.session = None
+
+    def _preprocess(self, frame: np.ndarray) -> np.ndarray:
+        shape = self.input_shape  # e.g. [1, 3, 640, 640] or [1, H, W, 3]
+        if len(shape) == 4:
+            if shape[1] == 3:  # NCHW
+                h, w = shape[2], shape[3]
+                if h <= 0 or w <= 0:
+                    h, w = 640, 640
+                resized = cv2.resize(frame, (w, h))
+                rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                blob = rgb.astype(np.float32) / 255.0
+                blob = np.transpose(blob, (2, 0, 1))
+                return np.expand_dims(blob, 0)
+            else:  # NHWC
+                h, w = shape[1], shape[2]
+                if h <= 0 or w <= 0:
+                    h, w = 640, 640
+                resized = cv2.resize(frame, (w, h))
+                rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                blob = rgb.astype(np.float32) / 255.0
+                return np.expand_dims(blob, 0)
+        # fallback: just resize to 640 NCHW
+        resized = cv2.resize(frame, (640, 640))
+        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        blob = rgb.astype(np.float32) / 255.0
+        blob = np.transpose(blob, (2, 0, 1))
+        return np.expand_dims(blob, 0)
+
+    def _parse_yolo_output(self, out: np.ndarray, conf_threshold: float, frame_w: int, frame_h: int) -> List[Dict[str, Any]]:
+        """Parse YOLOv8/v11 ONNX output tensor [1, num_attr, num_anchors]."""
+        if out.ndim == 3:
+            data = out[0]  # [num_attr, num_anchors]
+        else:
+            return []
+
+        num_attr, num_anchors = data.shape
+        # num_attr >= 5: cx, cy, w, h, class_scores...
+        if num_attr < 5:
+            return []
+
+        inp_shape = self.input_shape
+        inp_h = inp_shape[2] if len(inp_shape) == 4 and inp_shape[1] == 3 else inp_shape[1] if len(inp_shape) == 4 else 640
+        inp_w = inp_shape[3] if len(inp_shape) == 4 and inp_shape[1] == 3 else inp_shape[2] if len(inp_shape) == 4 else 640
+        scale_x = frame_w / (inp_w if inp_w > 0 else 640)
+        scale_y = frame_h / (inp_h if inp_h > 0 else 640)
+
+        predictions = []
+        class_scores = data[4:, :]  # [num_classes, num_anchors]
+        for i in range(num_anchors):
+            cls_vec = class_scores[:, i]
+            cls_id = int(np.argmax(cls_vec))
+            conf = float(cls_vec[cls_id])
+            if conf < conf_threshold:
+                continue
+            cx, cy, w, h = data[0, i], data[1, i], data[2, i], data[3, i]
+            x1 = (cx - w / 2) * scale_x
+            y1 = (cy - h / 2) * scale_y
+            x2 = (cx + w / 2) * scale_x
+            y2 = (cy + h / 2) * scale_y
+            predictions.append({
+                "bbox": [float(x1), float(y1), float(x2), float(y2)],
+                "confidence": conf,
+                "class": str(cls_id),
+                "class_id": cls_id,
+                "keypoints": [],
+            })
+        return predictions
+
+    def predict(self, frame: np.ndarray, conf: float = 0.5, **_kwargs) -> Dict[str, Any]:
+        if self.session is None:
+            return {"predictions": [], "metrics": {"mode": "onnx_unavailable", "raw_detection_count": 0, "retained_detection_count": 0, "retained_keypoint_count": 0, "inference_ms": 0.0, "postprocess_ms": 0.0}, "error": self.last_error or "ONNX session not loaded"}
+
+        try:
+            blob = self._preprocess(frame)
+            t0 = time.perf_counter()
+            outputs = self.session.run(self.output_names, {self.input_name: blob})
+            inference_ms = (time.perf_counter() - t0) * 1000
+
+            t1 = time.perf_counter()
+            predictions: List[Dict[str, Any]] = []
+            raw_tensors: Dict[str, Any] = {}
+            for name, out in zip(self.output_names, outputs):
+                raw_tensors[name] = out.tolist()
+
+            # Try YOLO-style parse on first output
+            if outputs and outputs[0].ndim == 3:
+                predictions = self._parse_yolo_output(outputs[0], conf, frame.shape[1], frame.shape[0])
+
+            postprocess_ms = (time.perf_counter() - t1) * 1000
+            return {
+                "predictions": predictions,
+                "raw_tensors": raw_tensors,
+                "metrics": {
+                    "mode": "onnx",
+                    "raw_detection_count": len(predictions),
+                    "retained_detection_count": len(predictions),
+                    "retained_keypoint_count": 0,
+                    "dropped_keypoints": 0,
+                    "dropped_detections": 0,
+                    "inference_ms": round(inference_ms, 3),
+                    "postprocess_ms": round(postprocess_ms, 3),
+                },
+                "error": None,
+            }
+        except Exception as exc:
+            logger.exception("[FlowExecutor] ONNX prediction error path=%s", self.model_path)
+            return {"predictions": [], "metrics": {"mode": "prediction_error", "raw_detection_count": 0, "retained_detection_count": 0, "retained_keypoint_count": 0, "inference_ms": 0.0, "postprocess_ms": 0.0}, "error": str(exc)}
+
+
 class StreamPublisher:
     def __init__(self, persist_url: str = "http://127.0.0.1:8000/persist"):
         self.persist_url = persist_url
@@ -346,12 +575,18 @@ class StreamPublisher:
 class FlowExecutor:
     def __init__(self):
         self.video_readers: Dict[str, VideoReader] = {}
+        self.camera_readers: Dict[str, CameraReader] = {}
         self.yolo_models: Dict[str, YOLOModel] = {}
+        self.onnx_models: Dict[str, ONNXModel] = {}
         self.stream_publisher = StreamPublisher()
         self.running = False
         self.flow_thread: Optional[threading.Thread] = None
         self._node_outputs: Dict[str, Any] = {}
         self._trace_history: deque = deque(maxlen=250)
+        # terminal_output buffers: node_id → deque of message strings
+        self._terminal_buffers: Dict[str, deque] = {}
+        # mqtt_subscribe active configs: node_id → {"broker", "port", "topic", "qos"}
+        self._mqtt_configs: Dict[str, Dict] = {}
 
     def _push_trace(self, node_id: str, node_type: str, stage: str, status: str, **details: Any):
         event = {
@@ -399,7 +634,9 @@ class FlowExecutor:
         return {
             "running": self.running,
             "videoReaders": list(self.video_readers.keys()),
+            "cameraReaders": list(self.camera_readers.keys()),
             "yoloModels": list(self.yolo_models.keys()),
+            "onnxModels": list(self.onnx_models.keys()),
             "nodeOutputs": self._summarize_outputs(),
             "recentTraces": list(self._trace_history),
         }
@@ -482,6 +719,62 @@ class FlowExecutor:
             },
         )
 
+    def execute_camera(self, node_id: str, config: Dict) -> Dict[str, Any]:
+        started = time.perf_counter()
+        camera_index = int(config.get("cameraIndex", 0))
+
+        cam = self.camera_readers.get(node_id)
+        if cam is None or cam.camera_index != camera_index:
+            if cam:
+                cam.release()
+            self.camera_readers[node_id] = CameraReader(camera_index)
+            cam = self.camera_readers[node_id]
+
+        frame = cam.read_frame()
+        cam_info = cam.get_info()
+
+        if frame is None:
+            return self._store_output(
+                node_id,
+                {
+                    "file_data": None,
+                    "file_name": f"camera_{camera_index}",
+                    "frame_info": cam_info,
+                    "error": cam_info.get("last_error") or f"No frame from camera {camera_index}",
+                },
+            )
+
+        ok, buffer = cv2.imencode(".jpg", frame)
+        if not ok:
+            return self._error_result(node_id, "camera_input", "Failed to encode frame", frame_info=cam_info)
+
+        frame_base64 = base64.b64encode(buffer).decode("utf-8")
+        total_ms = (time.perf_counter() - started) * 1000
+
+        self._push_trace(
+            node_id,
+            "camera_input",
+            "capture",
+            "ok",
+            camera_index=camera_index,
+            resolution=cam_info.get("resolution"),
+            latency_ms=round(total_ms, 3),
+        )
+        return self._store_output(
+            node_id,
+            {
+                "file_data": frame_base64,
+                "file_name": f"camera_{camera_index}",
+                "frame_info": cam_info,
+                "diagnostics": {
+                    "nodeId": node_id,
+                    "nodeType": "camera_input",
+                    "capture": cam_info,
+                    "latency_ms": round(total_ms, 3),
+                },
+            },
+        )
+
     def execute_ai_inference(self, node_id: str, config: Dict, input_data: Any) -> Dict[str, Any]:
         started = time.perf_counter()
         # Se aceptan varias claves porque el frontend histórico y el actual no usan
@@ -508,11 +801,18 @@ class FlowExecutor:
                 accepted_config_keys=["modelPath", "modelFile", "model"],
             )
 
-        cached_model = self.yolo_models.get(node_id)
-        if cached_model is None or cached_model.model_path != model_path or cached_model.device != device:
-            self.yolo_models[node_id] = YOLOModel(model_path, device=str(device) if device else None)
+        use_onnx = model_path.lower().endswith(".onnx")
 
-        model = self.yolo_models[node_id]
+        if use_onnx:
+            cached_model = self.onnx_models.get(node_id)
+            if cached_model is None or cached_model.model_path != model_path or cached_model.device != device:
+                self.onnx_models[node_id] = ONNXModel(model_path, device=str(device) if device else None)
+            model = self.onnx_models[node_id]
+        else:
+            cached_model = self.yolo_models.get(node_id)
+            if cached_model is None or cached_model.model_path != model_path or cached_model.device != device:
+                self.yolo_models[node_id] = YOLOModel(model_path, device=str(device) if device else None)
+            model = self.yolo_models[node_id]
 
         frame_data = None
         source_frame_info = None
@@ -725,13 +1025,110 @@ class FlowExecutor:
             },
         )
 
+    def execute_mqtt_subscribe(self, node_id: str, config: Dict) -> Dict[str, Any]:
+        """Ensure the MQTT subscription is active and return the latest message."""
+        if not MQTT_AVAILABLE:
+            return self._error_result(node_id, "mqtt_subscribe", "MQTT manager not available")
+
+        broker = str(config.get("broker", "localhost"))
+        port = int(config.get("port", 1883))
+        topic = str(config.get("topic", "#"))
+        qos = int(config.get("qos", 0))
+
+        # (Re-)subscribe only if config changed
+        cached = self._mqtt_configs.get(node_id, {})
+        if (
+            cached.get("broker") != broker
+            or cached.get("port") != port
+            or cached.get("topic") != topic
+            or cached.get("qos") != qos
+        ):
+            mqtt_mgr.subscribe_node(node_id, broker, port, topic, qos)
+            self._mqtt_configs[node_id] = {"broker": broker, "port": port, "topic": topic, "qos": qos}
+
+        conn = mqtt_mgr.get_connection(broker, port)
+        messages = conn.get_messages(node_id)
+
+        # Output the most recent message for downstream nodes
+        latest = messages[-1] if messages else None
+        payload = latest["payload"] if latest else None
+        topic_out = latest["topic"] if latest else topic
+
+        result = {
+            "payload": payload,
+            "topic": topic_out,
+            "messages": messages,
+            "message_count": len(messages),
+            "connected": conn.is_connected(),
+            "broker": broker,
+            "port": port,
+        }
+        self._push_trace(
+            node_id,
+            "mqtt_subscribe",
+            "receive",
+            "ok" if conn.is_connected() else "disconnected",
+            broker=broker,
+            topic=topic,
+            message_count=len(messages),
+        )
+        return self._store_output(node_id, result)
+
+    def execute_terminal_output(self, node_id: str, config: Dict, input_data: Any) -> Dict[str, Any]:
+        """Buffer incoming data and expose it for the frontend terminal display."""
+        max_msgs = int(config.get("maxMessages", 100))
+        show_timestamp = bool(config.get("showTimestamp", True))
+        label = str(config.get("label", ""))
+
+        # Initialise or resize the buffer
+        if node_id not in self._terminal_buffers or self._terminal_buffers[node_id].maxlen != max_msgs:
+            existing = list(self._terminal_buffers.get(node_id, []))
+            self._terminal_buffers[node_id] = deque(existing[-max_msgs:], maxlen=max_msgs)
+
+        buf = self._terminal_buffers[node_id]
+
+        # Format the incoming data as a displayable string
+        if input_data is None:
+            line = "[no data]"
+        elif isinstance(input_data, str):
+            line = input_data
+        elif isinstance(input_data, (int, float, bool)):
+            line = str(input_data)
+        else:
+            try:
+                line = json.dumps(input_data, ensure_ascii=False, default=str)
+            except Exception:
+                line = repr(input_data)
+
+        prefix = f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] " if show_timestamp else ""
+        buf.append(f"{prefix}{line}")
+
+        result = {
+            "lines": list(buf),
+            "count": len(buf),
+            "label": label,
+        }
+        self._push_trace(node_id, "terminal_output", "append", "ok", count=len(buf))
+        return self._store_output(node_id, result)
+
+    def get_terminal_lines(self, node_id: str) -> List[Dict[str, Any]]:
+        """Return buffered terminal lines for a given node (used by the REST endpoint)."""
+        buf = self._terminal_buffers.get(node_id)
+        return list(buf) if buf else []
+
     def execute_node(self, node_type: str, node_id: str, config: Dict, input_data: Any = None) -> Dict[str, Any]:
         if node_type == "file_reader":
             return self.execute_file_reader(node_id, config)
+        if node_type == "camera_input":
+            return self.execute_camera(node_id, config)
         if node_type == "ai_inference" or node_type == "onnx_inference":
             return self.execute_ai_inference(node_id, config, input_data)
         if node_type == "dashboard_stream" or node_type == "number_viewer":
             return self.execute_dashboard_stream(node_id, config, input_data)
+        if node_type == "mqtt_subscribe":
+            return self.execute_mqtt_subscribe(node_id, config)
+        if node_type == "terminal_output":
+            return self.execute_terminal_output(node_id, config, input_data)
         return self._error_result(node_id, node_type, f"Unknown node type: {node_type}")
 
     def execute_flow(self, flow: Dict) -> List[Dict]:
@@ -840,7 +1237,11 @@ class FlowExecutor:
         for reader in self.video_readers.values():
             reader.release()
         self.video_readers.clear()
+        for cam in self.camera_readers.values():
+            cam.release()
+        self.camera_readers.clear()
         self.yolo_models.clear()
+        self.onnx_models.clear()
 
 
 executor = FlowExecutor()

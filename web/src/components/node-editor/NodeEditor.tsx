@@ -17,10 +17,11 @@ import {
 import { useNodeEditorStore, NODE_TEMPLATES, type NodeTemplate, type Flow } from '../../store/nodeEditorStore';
 import { useProfileStore } from '../../store/profileStore';
 import CustomNode from './nodes/CustomNode';
+import TerminalNode from './nodes/TerminalNode';
 import NodePalette from './NodePalette';
 import NodeConfigPanel from './NodeConfigPanel';
 
-const nodeTypes = { custom: CustomNode };
+const nodeTypes = { custom: CustomNode, terminal: TerminalNode };
 
 interface NodeEditorProps {
   userId: string;

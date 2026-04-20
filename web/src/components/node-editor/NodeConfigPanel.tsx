@@ -1,5 +1,6 @@
-import { X, Info, Upload } from 'lucide-react';
+import { X, Info, Upload, CheckCircle, AlertCircle, Loader, Camera, RefreshCw } from 'lucide-react';
 import { useNodeEditorStore, CATEGORY_META } from '../../store/nodeEditorStore';
+import { useState } from 'react';
 import type { Node } from '@xyflow/react';
 
 interface NodeConfigPanelProps {
@@ -17,8 +18,15 @@ const DATA_TYPE_COLORS: Record<string, string> = {
   mesh: '#f97316',
 };
 
+type UploadState = 'idle' | 'uploading' | 'success' | 'error';
+
 export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps) {
   const { updateNodeConfig } = useNodeEditorStore();
+  const [uploadStates, setUploadStates] = useState<Record<string, UploadState>>({});
+  const [uploadMessages, setUploadMessages] = useState<Record<string, string>>({});
+  const [cameras, setCameras] = useState<{ index: number; resolution: string; fps: number }[]>([]);
+  const [camerasLoading, setCamerasLoading] = useState(false);
+
   const data = node.data as {
     type: string;
     category: string;
@@ -127,7 +135,61 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
                 <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 capitalize">
                   {key.replace(/_/g, ' ')}
                 </label>
-                {typeof value === 'boolean' ? (
+                {key === 'cameraIndex' ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={Number(value)}
+                        onChange={e => handleConfigChange(key, parseInt(e.target.value) || 0)}
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-600 rounded-xl text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500/30 transition-all"
+                      />
+                      <button
+                        onClick={async () => {
+                          setCamerasLoading(true);
+                          try {
+                            const res = await fetch('http://localhost:8080/api/flow/cameras');
+                            if (res.ok) {
+                              const d = await res.json();
+                              setCameras(d.cameras || []);
+                            }
+                          } catch { /* ignore */ } finally {
+                            setCamerasLoading(false);
+                          }
+                        }}
+                        className="px-2 py-2 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 hover:bg-purple-100 transition-all shrink-0"
+                        title="Detect cameras"
+                      >
+                        {camerasLoading
+                          ? <Loader className="w-3.5 h-3.5 text-purple-500 animate-spin" />
+                          : <RefreshCw className="w-3.5 h-3.5 text-purple-500" />}
+                      </button>
+                    </div>
+                    {cameras.length > 0 && (
+                      <div className="space-y-1">
+                        {cameras.map(cam => (
+                          <button
+                            key={cam.index}
+                            onClick={() => handleConfigChange(key, cam.index)}
+                            className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-left transition-all border ${
+                              Number(value) === cam.index
+                                ? 'bg-purple-50 dark:bg-purple-500/20 border-purple-300 dark:border-purple-500/50'
+                                : 'bg-gray-50 dark:bg-slate-900/50 border-gray-200 dark:border-slate-600 hover:border-purple-300'
+                            }`}
+                          >
+                            <Camera className="w-3 h-3 text-purple-500 shrink-0" />
+                            <span className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">Camera {cam.index}</span>
+                            <span className="ml-auto text-[9px] text-gray-400 font-mono">{cam.resolution} · {cam.fps.toFixed(0)}fps</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {cameras.length === 0 && !camerasLoading && (
+                      <p className="text-[10px] text-gray-400 italic">Click refresh to detect cameras</p>
+                    )}
+                  </div>
+                ) : typeof value === 'boolean' ? (
                   <button
                     onClick={() => handleConfigChange(key, !value)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -152,38 +214,69 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
                       value={String(value)}
                       onChange={e => handleConfigChange(key, e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-600 rounded-xl text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
-                      placeholder="e.g. uploaded-model.onnx"
+                      placeholder="e.g. uploads/model.onnx"
                     />
-                    <label className="flex items-center justify-center gap-2 px-3 py-2 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:border-blue-300 transition-all group">
-                      <Upload className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-500" />
-                      <span className="text-[10px] font-bold text-gray-500 group-hover:text-blue-600 uppercase">Upload Desktop File</span>
-                      <input 
-                        type="file" 
-                        className="hidden" 
+                    <label className={`flex items-center justify-center gap-2 px-3 py-2 border-2 border-dashed rounded-xl cursor-pointer transition-all group ${
+                      uploadStates[key] === 'success'
+                        ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-500/10'
+                        : uploadStates[key] === 'error'
+                        ? 'border-red-400 bg-red-50 dark:bg-red-500/10'
+                        : uploadStates[key] === 'uploading'
+                        ? 'border-blue-300 bg-blue-50 dark:bg-blue-500/10 cursor-wait'
+                        : 'border-gray-200 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:border-blue-300'
+                    }`}>
+                      {uploadStates[key] === 'uploading' ? (
+                        <Loader className="w-3.5 h-3.5 text-blue-500 animate-spin" />
+                      ) : uploadStates[key] === 'success' ? (
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : uploadStates[key] === 'error' ? (
+                        <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-500" />
+                      )}
+                      <span className={`text-[10px] font-bold uppercase ${
+                        uploadStates[key] === 'success' ? 'text-emerald-600' :
+                        uploadStates[key] === 'error' ? 'text-red-600' :
+                        uploadStates[key] === 'uploading' ? 'text-blue-600' :
+                        'text-gray-500 group-hover:text-blue-600'
+                      }`}>
+                        {uploadStates[key] === 'uploading' ? 'Uploading…' :
+                         uploadStates[key] === 'success' ? (uploadMessages[key] || 'Uploaded') :
+                         uploadStates[key] === 'error' ? (uploadMessages[key] || 'Upload failed') :
+                         'Upload .pt or .onnx'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pt,.onnx"
+                        className="hidden"
+                        disabled={uploadStates[key] === 'uploading'}
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
-                          if (file) {
-                            try {
-                              const formData = new FormData();
-                              formData.append('file', file);
-                              const response = await fetch('http://localhost:8080/api/flow/upload', {
-                                method: 'POST',
-                                body: formData,
-                              });
-                              if (response.ok) {
-                                const data = await response.json();
-                                handleConfigChange(key, data.file_path);
-                              } else {
-                                console.error('Failed to upload file');
-                                const url = URL.createObjectURL(file);
-                                handleConfigChange(key, url);
-                              }
-                            } catch (err) {
-                              console.error('Error uploading file', err);
-                              const url = URL.createObjectURL(file);
-                              handleConfigChange(key, url);
+                          if (!file) return;
+                          setUploadStates(s => ({ ...s, [key]: 'uploading' }));
+                          setUploadMessages(s => ({ ...s, [key]: '' }));
+                          try {
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            const response = await fetch('http://localhost:8080/api/flow/upload', {
+                              method: 'POST',
+                              body: formData,
+                            });
+                            if (response.ok) {
+                              const result = await response.json();
+                              handleConfigChange(key, result.file_path);
+                              setUploadStates(s => ({ ...s, [key]: 'success' }));
+                              setUploadMessages(s => ({ ...s, [key]: result.filename }));
+                            } else {
+                              const err = await response.text();
+                              setUploadStates(s => ({ ...s, [key]: 'error' }));
+                              setUploadMessages(s => ({ ...s, [key]: err.slice(0, 60) }));
                             }
+                          } catch (err) {
+                            setUploadStates(s => ({ ...s, [key]: 'error' }));
+                            setUploadMessages(s => ({ ...s, [key]: String(err).slice(0, 60) }));
                           }
+                          e.target.value = '';
                         }}
                       />
                     </label>

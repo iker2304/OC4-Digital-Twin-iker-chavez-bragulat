@@ -110,6 +110,29 @@ async def get_flow_diagnostics():
     return executor.get_diagnostics()
 
 
+@router.get("/terminal/{node_id}")
+async def get_terminal_output(node_id: str):
+    """Return buffered lines for a terminal_output node."""
+    lines = executor.get_terminal_lines(node_id)
+    return {"nodeId": node_id, "lines": lines, "count": len(lines)}
+
+
+@router.get("/cameras")
+async def list_cameras():
+    """Probe camera indices 0-9 and return those that open successfully."""
+    import cv2 as _cv2
+    available = []
+    for idx in range(10):
+        cap = _cv2.VideoCapture(idx)
+        if cap.isOpened():
+            w = int(cap.get(_cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            h = int(cap.get(_cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            fps = float(cap.get(_cv2.CAP_PROP_FPS) or 0.0)
+            available.append({"index": idx, "resolution": f"{w}x{h}", "fps": fps})
+            cap.release()
+    return {"cameras": available}
+
+
 @router.post("/execute-flow")
 async def execute_flow_once(flow: Dict[str, Any]):
     try:

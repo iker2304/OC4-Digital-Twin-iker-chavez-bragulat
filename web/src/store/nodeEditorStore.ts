@@ -117,6 +117,21 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     ],
     defaultConfig: { uploadedFile: '', readAs: 'arrayBuffer', loop: false },
   },
+  {
+    type: 'camera_input',
+    category: 'input',
+    label: 'Camera',
+    description: 'Capture frames from a local webcam or camera',
+    icon: '📷',
+    color: '#7c3aed',
+    inputs: [],
+    outputs: [
+      { id: 'file_data', label: 'Frame', dataType: 'image' },
+      { id: 'file_name', label: 'Camera ID', dataType: 'string' },
+      { id: 'frame_info', label: 'Frame Info', dataType: 'json' },
+    ],
+    defaultConfig: { cameraIndex: 0 },
+  },
 
   // PROCESSORS
   {
@@ -357,6 +372,17 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     inputs: [{ id: 'input', label: 'Input', dataType: 'any' }],
     outputs: [],
     defaultConfig: { showTimestamp: true, maxMessages: 50 },
+  },
+  {
+    type: 'terminal_output',
+    category: 'output',
+    label: 'Terminal Output',
+    description: 'Live terminal display — shows incoming data as scrolling text. Connect after MQTT Subscribe for real-time message viewing.',
+    icon: '🖥️',
+    color: '#22d3ee',
+    inputs: [{ id: 'input', label: 'Input', dataType: 'any' }],
+    outputs: [],
+    defaultConfig: { label: 'Terminal', showTimestamp: true, maxMessages: 100, pollInterval: 1000 },
   },
 
   // DIGITAL TWIN
@@ -658,9 +684,11 @@ export const useNodeEditorStore = create<NodeEditorStore>((set, get) => ({
   addNodeFromTemplate: (template, position) => {
     const nodeId = uuidv4();
     const streamId = template.type === 'dashboard_stream' ? uuidv4() : undefined;
+    // Use the dedicated terminal renderer for terminal_output nodes
+    const reactFlowType = template.type === 'terminal_output' ? 'terminal' : 'custom';
     const newNode: Node = {
       id: nodeId,
-      type: 'custom',
+      type: reactFlowType,
       position,
       data: {
         type: template.type,
