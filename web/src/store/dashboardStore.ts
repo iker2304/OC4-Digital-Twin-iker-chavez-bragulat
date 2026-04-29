@@ -410,7 +410,6 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
   },
 
   registerStream: (stream) => {
-    console.log('[DashboardStore] Registering stream:', stream.id, stream.label);
     const newStream: StreamDefinition = { ...stream, updatedAt: Date.now() };
     const all = getAllStreams();
     const existing = all.findIndex(s => s.id === stream.id);
@@ -504,7 +503,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
           }
         }
       } catch (e) {
-        console.log('[DashboardStore] Stream polling error:', e);
+        console.error('[DashboardStore] Stream polling error:', e);
       }
     };
 

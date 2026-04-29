@@ -762,18 +762,10 @@ export const useNodeEditorStore = create<NodeEditorStore>((set, get) => ({
     const dashboardStreams = flow.nodes.filter(
       n => n.data.type === 'dashboard_stream' || n.data.type === 'number_viewer',
     );
-    console.log('[NodeEditorStore] Found', dashboardStreams.length, 'dashboard streams to register');
     const { registerStream } = useDashboardStore.getState();
-    
+
     dashboardStreams.forEach(node => {
       const config = node.data.config as any;
-      console.log('[NodeEditorStore] Processing stream node:', {
-        nodeId: node.id,
-        streamId: config.streamId,
-        streamLabel: config.streamLabel,
-        flowProfileId: flow.profileId,
-        flowId: flow.id
-      });
       if (config.streamId) {
         registerStream({
           id: config.streamId,
@@ -807,7 +799,7 @@ export const useNodeEditorStore = create<NodeEditorStore>((set, get) => ({
       }),
     })
     .then(res => res.json())
-    .then(data => console.log('[NodeEditorStore] Flow deployed:', data))
+    .then(() => {})
     .catch(err => console.error('[NodeEditorStore] Flow deploy error:', err));
 
     fetch('http://localhost:8080/persist/deployed_flows', {

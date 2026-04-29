@@ -99,11 +99,9 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
       reconnectTimer = null;
     }
     
-    console.log('Connecting to WebSocket...');
     socket = new WebSocket('ws://localhost:8080/ws/realtime');
 
     socket.onopen = () => {
-      console.log('Connected');
       set({ isConnected: true });
     };
 
@@ -193,7 +191,6 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
     };
 
     socket.onclose = () => {
-      console.log('Disconnected');
       set({ isConnected: false });
       socket = null;
       if (!manualDisconnect) {

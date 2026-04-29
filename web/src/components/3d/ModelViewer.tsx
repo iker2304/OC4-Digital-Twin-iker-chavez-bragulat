@@ -173,9 +173,6 @@ const GLBModel = ({ url, onModelLoaded }: { url: string; onModelLoaded?: (scene:
           child.receiveShadow = true;
         }
       });
-      if (animations && animations.length > 0) {
-        console.log('Model has animations:', animations.map(a => a.name));
-      }
       if (onModelLoaded) onModelLoaded(scene);
     }
   }, [scene, onModelLoaded, animations]);
@@ -310,7 +307,6 @@ function lerpAngleShortest(current: number, target: number, alpha: number): numb
 
 const BladeController = ({ scene }: { scene: THREE.Group | null }) => {
   const rotationNode = useRef<THREE.Object3D | null>(null);
-  const lastLoggedRef = useRef<number>(0);
   // Two-stage smoothing: first filter the raw detected angle, then follow with the model
   const smoothedAngleRef = useRef<number | null>(null);
 
@@ -357,58 +353,35 @@ const BladeController = ({ scene }: { scene: THREE.Group | null }) => {
     // we probably want its parent which likely contains the actual blade meshes.
     if (foundNode && foundNode.name.toLowerCase().includes('hub') && foundNode.children.length === 0) {
       if (foundNode.parent) {
-        console.log(`BladeController: Found ${foundNode.name} with no children, switching to parent ${foundNode.parent.name}`);
         foundNode = foundNode.parent;
       }
     }
 
     if (foundNode) {
-      console.log('BladeController: Target rotation node found:', foundNode.name);
       rotationNode.current = foundNode;
-      
-      // Check for children with color names to confirm offsets
-      const childrenNames = foundNode.children.map(c => c.name.toLowerCase());
-      console.log('BladeController: Rotor children:', childrenNames);
-    } else {
-      console.warn('BladeController: No rotation/hub node found in model hierarchy.');
-      console.log('BladeController: Top level nodes:', scene.children.map(c => c.name));
     }
   }, [scene]);
 
   useFrame((_state, delta) => {
-    const now = Date.now();
-    const shouldLog = now - lastLoggedRef.current > 5000;
-
     if (!rotationNode.current) {
-      if (shouldLog) {
-        console.log('BladeController: Waiting for rotation node...');
-        lastLoggedRef.current = now;
-      }
       return;
     }
 
     const { video } = useTwinStore.getState();
 
     if (!video.keypoints || video.keypoints.length === 0) {
-      if (shouldLog) {
-        console.log('BladeController: No keypoints available');
-        lastLoggedRef.current = now;
-      }
       return;
     }
 
     // Find the Hub keypoint to use as the center of rotation
     const hubKpt = video.keypoints.find(k => String(k.id).toLowerCase() === 'hub');
-    
+
     let hubX: number;
     let hubY: number;
 
     if (hubKpt) {
       hubX = hubKpt.x;
       hubY = hubKpt.y;
-      if (shouldLog) {
-        console.log(`BladeController: Using dedicated Hub keypoint at (${hubX.toFixed(1)}, ${hubY.toFixed(1)})`);
-      }
     } else {
       // Fallback: Hub center = centroid of all Rotor keypoints
       const rotorKpts = video.keypoints.filter(k => {
@@ -417,19 +390,11 @@ const BladeController = ({ scene }: { scene: THREE.Group | null }) => {
       });
 
       if (rotorKpts.length === 0) {
-        if (shouldLog) {
-          console.log('BladeController: No Hub or Rotor keypoints found');
-          lastLoggedRef.current = now;
-        }
         return;
       }
 
       hubX = rotorKpts.reduce((sum, k) => sum + k.x, 0) / rotorKpts.length;
       hubY = rotorKpts.reduce((sum, k) => sum + k.y, 0) / rotorKpts.length;
-      
-      if (shouldLog) {
-        console.log(`BladeController: Falling back to Rotor centroid at (${hubX.toFixed(1)}, ${hubY.toFixed(1)})`);
-      }
     }
 
     // Collect all Rotor keypoints for tip detection
@@ -471,12 +436,6 @@ const BladeController = ({ scene }: { scene: THREE.Group | null }) => {
             countTargetAngle++;
           }
 
-          if (shouldLog && countTargetAngle === 1) {
-            console.log(
-              `BladeController: Rotor sync via ${kptName} — detected=${rawAngle.toFixed(3)} rad, ` +
-              `offset=${bladeOffset.toFixed(3)} rad, target=${target.toFixed(3)} rad`
-            );
-          }
         }
       }
       if (countTargetAngle > 0) break;

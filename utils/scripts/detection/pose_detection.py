@@ -14,6 +14,7 @@ import socketserver
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     """Handle requests in separate threads."""
+    allow_reuse_address = True  # Prevents "Address already in use" on restart
     daemon_threads = True
 
 # Global variables for streaming

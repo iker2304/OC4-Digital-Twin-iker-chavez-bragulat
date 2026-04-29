@@ -70,7 +70,7 @@ function TimeSeriesWidget({ widget, stream }: { widget: DashboardWidget; stream?
           }
         }
       } catch (e) {
-        console.log('[WidgetRenderer] Manual stream poll error:', e);
+        console.error('[WidgetRenderer] Manual stream poll error:', e);
       }
     };
 

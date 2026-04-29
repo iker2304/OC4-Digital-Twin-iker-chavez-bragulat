@@ -13,7 +13,12 @@ import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
 const MJPEG_BASE = 'http://127.0.0.1:8001/video_feed';
-const MJPEG_REFRESH_MS = 20000;
+const MJPEG_REFRESH_MS = 300000; // 5 min — periodic keep-alive reconnect
+// Max ms without a new frame before we force-reconnect the MJPEG stream.
+// MJPEG connections can freeze silently (no onerror) after ~2-3 min on macOS/Safari.
+// NOTE: <img> onLoad fires only once (on connection open, not per-frame), so this
+// timeout must be longer than the longest expected stream run without a reconnect.
+const MJPEG_STALL_TIMEOUT_MS = 90000;
 const LAYOUT_STORAGE_KEY = 'oc4_twin_layout_v1';
 const DEFAULT_LAYOUT = [
   { i: 'viewer', x: 0, y: 0, w: 7, h: 6, minW: 4, minH: 4 },
@@ -62,6 +67,7 @@ export default function Twin() {
   const [streamError, setStreamError] = useState(false);
 
   const [mjpegUrl, setMjpegUrl] = useState(() => buildMjpegUrl(Date.now()));
+  const lastFrameTimeRef = useRef<number>(Date.now());
 
   // Force a fresh MJPEG request when `streamTs` changes (retry/watchdog).
   useEffect(() => {
@@ -152,12 +158,14 @@ export default function Twin() {
   const handleStreamLoad = useCallback(() => {
     setStreamLoading(false);
     setStreamError(false);
+    lastFrameTimeRef.current = Date.now();
   }, []);
 
   const handleStreamError = useCallback(() => {
     setStreamLoading(false);
     setStreamError(true);
   }, []);
+
 
   // MJPEG streams can silently stall; periodic reconnect keeps the feed alive.
   useEffect(() => {
@@ -168,6 +176,19 @@ export default function Twin() {
     }, MJPEG_REFRESH_MS);
     return () => window.clearInterval(refreshTimer);
   }, [streamLoading]);
+
+  // Stall watchdog: if the stream hasn't delivered a new frame in MJPEG_STALL_TIMEOUT_MS,
+  // force-reconnect. This handles the silent freeze that MJPEG connections get on macOS
+  // after ~2-3 minutes without triggering onerror.
+  useEffect(() => {
+    const stallTimer = window.setInterval(() => {
+      if (!streamLoading && mjpegUrl && Date.now() - lastFrameTimeRef.current > MJPEG_STALL_TIMEOUT_MS) {
+        lastFrameTimeRef.current = Date.now();
+        setStreamTs(Date.now());
+      }
+    }, 2000);
+    return () => window.clearInterval(stallTimer);
+  }, [streamLoading, mjpegUrl]);
 
   const [gridWidth, setGridWidth] = useState(1200);
   const [layout, setLayout] = useState(() => {
@@ -366,13 +387,18 @@ export default function Twin() {
 
               {/* No-signal placeholder when stream fails */}
               {streamError && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950 gap-2">
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950 gap-3 px-4 text-center">
                   <WifiOff className="w-8 h-8 text-red-400" />
-                  <span className="text-xs text-slate-400">Stream unavailable</span>
-                  <span className="text-[10px] text-slate-600 font-mono">{MJPEG_BASE}</span>
+                  <span className="text-xs text-slate-300 font-semibold">MJPEG server not reachable</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{MJPEG_BASE}</span>
+                  <span className="text-[10px] text-slate-500 leading-relaxed">
+                    Make sure <span className="text-sky-400 font-mono">pose_detection.py</span> is running.<br/>
+                    If it just stopped, port 8001 may still be held — run:<br/>
+                    <span className="text-yellow-400 font-mono">lsof -i :8001</span> then kill the PID.
+                  </span>
                   <button
                     onClick={() => { setStreamError(false); setStreamLoading(true); setStreamTs(Date.now()); }}
-                    className="mt-1 text-[10px] px-2 py-0.5 rounded bg-slate-800 text-sky-400 hover:bg-slate-700"
+                    className="mt-1 text-[10px] px-3 py-1 rounded bg-slate-800 text-sky-400 hover:bg-slate-700 border border-slate-700"
                   >Retry</button>
                 </div>
               )}
