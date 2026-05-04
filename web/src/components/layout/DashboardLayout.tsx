@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Activity, Settings, Database, Map, ChevronLeft, ChevronRight, Home, Users, LogOut, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Activity, Settings, Database, Map, ChevronLeft, ChevronRight, Home, Users, LogOut, ChevronDown, Grid } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import cimneLogo from '../../assets/cimne-logo.png';
@@ -13,6 +13,7 @@ const navItems = [
   { icon: Activity, label: 'SHM Analysis (Alpha)', path: '/shm' },
   { icon: Users, label: 'DT Profiles', path: '/profiles' },
   { icon: Database, label: 'Dataset', path: '/dataset' },
+  { icon: Grid, label: 'FEM Analysis', path: '/fem' },
   { icon: Activity, label: 'Grafana', path: '/grafana' },
   { icon: Settings, label: 'Settings', path: '/settings' },
 ];

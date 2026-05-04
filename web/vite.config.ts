@@ -20,6 +20,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,gz,br}'],
+        globIgnores: ['**/OC4-modal/**'],
+        maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/marine-api\.open-meteo\.com\/.*/i,

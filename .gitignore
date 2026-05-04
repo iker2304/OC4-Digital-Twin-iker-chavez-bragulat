@@ -12,6 +12,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+MRAO_calc.py
 
 # Logs y Salidas
 backend/output/csv/*.csv
@@ -52,7 +53,6 @@ Thumbs.db
 debug*
 test_*
 analyze_*
-generate_*
 implementation*
 analysis_output/
 experiments/visualizations_pose/
@@ -72,3 +72,4 @@ utils/scripts/dataset
 verify_pnp.py
 pose_detection_kalman.pya
 expand_*
+generate_dataset*

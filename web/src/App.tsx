@@ -13,6 +13,7 @@ import SHMPage from './pages/SHMPage';
 import LoginPage from './pages/LoginPage';
 import ProfilesPage from './pages/ProfilesPage';
 import ProfileDetailPage from './pages/ProfileDetailPage';
+import FEMPage from './pages/FEMPage';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -58,6 +59,7 @@ function App() {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/grafana" element={<Grafana />} />
                 <Route path="/dataset" element={<DatasetGeneration />} />
+                <Route path="/fem" element={<FEMPage />} />
               </Routes>
             </DashboardLayout>
           </AuthGuard>

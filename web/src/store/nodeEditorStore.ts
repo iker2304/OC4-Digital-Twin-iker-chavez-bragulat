@@ -37,6 +37,25 @@ export interface NodeTemplate {
 export const NODE_TEMPLATES: NodeTemplate[] = [
   // INPUTS
   {
+    type: 'wind_load',
+    category: 'input',
+    label: 'Wind Load',
+    description: 'Aerodynamic load on OC4 from wind speed and direction',
+    icon: '💨',
+    color: '#0ea5e9',
+    inputs: [],
+    outputs: [
+      { id: 'loads', label: 'Loads (N, Nm)', dataType: 'json' },
+    ],
+    defaultConfig: {
+      windSpeed: 12,
+      windDirection: 0,
+      airDensity: 1.225,
+      rotorDiameter: 126,
+      thrustCoefficient: 0.8,
+    },
+  },
+  {
     type: 'mqtt_subscribe',
     category: 'input',
     label: 'MQTT Subscribe',
@@ -449,6 +468,17 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     defaultConfig: { method: 'zscore', threshold: 3.0, window: 50 },
   },
   {
+    type: 'fem_sim',
+    category: 'digital-twin',
+    label: 'FEM Sim Viewer',
+    description: 'Control pre-calculated FEM displacement visualization on the FEM page',
+    icon: '🏗️',
+    color: '#7c3aed',
+    inputs: [],
+    outputs: [],
+    defaultConfig: { mode: 'wind', windSpeed: 5.0, waveHs: 1.0, waveTp: 10.0 },
+  },
+  {
     type: 'signal_processor',
     category: 'digital-twin',
     label: 'Signal Processor',
@@ -731,6 +761,21 @@ export const useNodeEditorStore = create<NodeEditorStore>((set, get) => ({
           : n,
       ),
     }));
+    // Push sim params to FEM page whenever a fem_sim node is updated
+    const node = get().nodes.find(n => n.id === nodeId);
+    if (node?.data?.type === 'fem_sim') {
+      const merged = { ...(node.data.config as Record<string, unknown>), ...config };
+      fetch('http://localhost:8080/api/fem/sim-params', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: merged.mode ?? 'wind',
+          windSpeed: merged.windSpeed ?? 5.0,
+          waveHs: merged.waveHs ?? 1.0,
+          waveTp: merged.waveTp ?? 10.0,
+        }),
+      }).catch(() => {});
+    }
     setTimeout(() => get().saveCurrentFlow(), 300);
   },
 

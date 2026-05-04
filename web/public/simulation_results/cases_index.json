@@ -1,0 +1,82 @@
+{
+  "structure": {
+    "name": "OC4 1:100",
+    "total_mass_kg": 7.0,
+    "damping_ratio": 0.02,
+    "n_modes_used": 4,
+    "modes_used": [
+      13,
+      14,
+      15,
+      20
+    ]
+  },
+  "analysis": {
+    "frequency_range_hz": [
+      0.01,
+      3.0
+    ],
+    "frequency_resolution_hz": 0.01,
+    "amplitude_scale_visual": 100,
+    "colormap": "jet"
+  },
+  "cases": [
+    {
+      "id": "olas_hs05_tp8",
+      "name": "Wave Hs=0.5m Tp=8s",
+      "type": "wave",
+      "parameters": {
+        "Hs_m": 0.5,
+        "Tp_s": 8.0
+      },
+      "file": "result_olas_hs05_tp8.json"
+    },
+    {
+      "id": "olas_hs10_tp10",
+      "name": "Wave Hs=1.0m Tp=10s",
+      "type": "wave",
+      "parameters": {
+        "Hs_m": 1.0,
+        "Tp_s": 10.0
+      },
+      "file": "result_olas_hs10_tp10.json"
+    },
+    {
+      "id": "olas_hs20_tp12",
+      "name": "Wave Hs=2.0m Tp=12s",
+      "type": "wave",
+      "parameters": {
+        "Hs_m": 2.0,
+        "Tp_s": 12.0
+      },
+      "file": "result_olas_hs20_tp12.json"
+    },
+    {
+      "id": "viento_3ms",
+      "name": "Wind U=3m/s",
+      "type": "wind",
+      "parameters": {
+        "U_ms": 3.0
+      },
+      "file": "result_viento_3ms.json"
+    },
+    {
+      "id": "viento_5ms",
+      "name": "Wind U=5m/s",
+      "type": "wind",
+      "parameters": {
+        "U_ms": 5.0
+      },
+      "file": "result_viento_5ms.json"
+    },
+    {
+      "id": "viento_8ms",
+      "name": "Wind U=8m/s",
+      "type": "wind",
+      "parameters": {
+        "U_ms": 8.0
+      },
+      "file": "result_viento_8ms.json"
+    }
+  ]
+}

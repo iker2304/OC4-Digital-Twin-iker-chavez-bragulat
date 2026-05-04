@@ -971,6 +971,81 @@ class FlowExecutor:
             },
         )
 
+    def execute_wind_load(self, node_id: str, config: Dict) -> Dict[str, Any]:
+        """Convert wind speed + direction to aerodynamic thrust loads (N, Nm)."""
+        import math
+        started = time.perf_counter()
+        try:
+            v = float(config.get("windSpeed", 12))          # m/s
+            theta = float(config.get("windDirection", 0))   # degrees, 0 = along +X
+            rho = float(config.get("airDensity", 1.225))    # kg/m³
+            D = float(config.get("rotorDiameter", 126))     # m
+            Ct = float(config.get("thrustCoefficient", 0.8))
+
+            A = math.pi * (D / 2) ** 2                      # rotor swept area m²
+            T = 0.5 * rho * Ct * A * v ** 2                 # thrust force (N)
+
+            rad = math.radians(theta)
+            Fx = T * math.cos(rad)
+            Fy = T * math.sin(rad)
+
+            # Overturning moment: thrust applied at hub height (~90 m for OC4)
+            hub_height = 90.0
+            My = -Fx * hub_height
+            Mx = Fy * hub_height
+
+            loads = {
+                "Fx": round(Fx, 1),
+                "Fy": round(Fy, 1),
+                "Fz": 0.0,
+                "Mx": round(Mx, 1),
+                "My": round(My, 1),
+                "Mz": 0.0,
+                "node_forces": {},
+                "source": "wind_load",
+                "_meta_wind": {"speed_ms": v, "direction_deg": theta, "thrust_N": round(T, 1)},
+            }
+            elapsed = (time.perf_counter() - started) * 1000
+            return {
+                "loads": loads,
+                "_meta": {"node_id": node_id, "latency_ms": round(elapsed, 2)},
+            }
+        except Exception as exc:
+            return self._error_result(node_id, "wind_load", str(exc))
+
+    def execute_fem_analysis(self, node_id: str, config: Dict, input_data: Any) -> Dict[str, Any]:
+        started = time.perf_counter()
+        try:
+            from app.api.fem import update_fem_loads
+
+            # Accept loads as dict {Fx,Fy,Fz,Mx,My,Mz} or a scalar (treat as Fz)
+            if isinstance(input_data, dict):
+                loads = {
+                    "Fx": float(input_data.get("Fx", input_data.get("fx", 0))),
+                    "Fy": float(input_data.get("Fy", input_data.get("fy", 0))),
+                    "Fz": float(input_data.get("Fz", input_data.get("fz", 0))),
+                    "Mx": float(input_data.get("Mx", input_data.get("mx", 0))),
+                    "My": float(input_data.get("My", input_data.get("my", 0))),
+                    "Mz": float(input_data.get("Mz", input_data.get("mz", 0))),
+                    "node_forces": input_data.get("node_forces", {}),
+                    "source": "pipeline",
+                }
+            elif isinstance(input_data, (int, float)):
+                loads = {"Fx": 0, "Fy": 0, "Fz": float(input_data), "Mx": 0, "My": 0, "Mz": 0, "node_forces": {}, "source": "pipeline"}
+            else:
+                loads = {"Fx": 0, "Fy": 0, "Fz": 0, "Mx": 0, "My": 0, "Mz": 0, "node_forces": {}, "source": "pipeline"}
+
+            update_fem_loads(loads)
+
+            elapsed = (time.perf_counter() - started) * 1000
+            return {
+                "stress": loads,
+                "displacement": loads,
+                "_meta": {"node_id": node_id, "latency_ms": round(elapsed, 2)},
+            }
+        except Exception as exc:
+            return self._error_result(node_id, "fem_analysis", str(exc))
+
     def execute_dashboard_stream(self, node_id: str, config: Dict, input_data: Any) -> Dict[str, Any]:
         started = time.perf_counter()
         stream_id = config.get("streamId", node_id)
@@ -1129,6 +1204,10 @@ class FlowExecutor:
             return self.execute_mqtt_subscribe(node_id, config)
         if node_type == "terminal_output":
             return self.execute_terminal_output(node_id, config, input_data)
+        if node_type == "wind_load":
+            return self.execute_wind_load(node_id, config)
+        if node_type == "fem_analysis":
+            return self.execute_fem_analysis(node_id, config, input_data)
         return self._error_result(node_id, node_type, f"Unknown node type: {node_type}")
 
     def execute_flow(self, flow: Dict) -> List[Dict]:

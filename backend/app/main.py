@@ -9,6 +9,7 @@ from app.api.auth import router as auth_router
 from app.api.flow_router import router as flow_router
 from app.api.sse import router as sse_router
 from app.api.mqtt_router import router as mqtt_router
+from app.api.fem import router as fem_router
 
 app = FastAPI()
 
@@ -29,3 +30,4 @@ app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(flow_router, prefix="/api/flow", tags=["flow"])
 app.include_router(sse_router, prefix="/api", tags=["sse"])
 app.include_router(mqtt_router, prefix="/api/mqtt", tags=["mqtt"])
+app.include_router(fem_router, prefix="/api/fem", tags=["fem"])
