@@ -27,7 +27,39 @@ interface ResData {
 }
 
 type ColorComponent = 'magnitude' | 'x' | 'y' | 'z';
-type PageTab = 'modal' | 'loads' | 'sim';
+type PageTab = 'modal' | 'loads' | 'sim' | 'live';
+
+interface LiveMatchedMode {
+  mode_id: number;
+  freq_hz: number;
+  amplitude: number;
+  normalized_amplitude: number;
+}
+
+interface LiveInfo {
+  fps: number;
+  nyquist_hz: number;
+  n_samples: number;
+  matched_modes: LiveMatchedMode[];
+  timestamp: string;
+}
+
+// Find the GLB mode key for a given FEM mode number (tries common naming conventions)
+function findModeKey(resData: ResData, modeId: number): string | null {
+  const keys = Object.keys(resData.modes);
+  const n = modeId;
+  const pad3 = String(n).padStart(3, '0');
+  return keys.find(k =>
+    k === String(n) ||
+    k === `Mode_${pad3}` ||
+    k === `Mode_${n}` ||
+    k === `mode_${n}` ||
+    k === `MODE_${pad3}` ||
+    k.endsWith(`_${n}`) ||
+    k.startsWith(`Mode_${n}_`) ||   // matches "Mode_1_(Freq.:_0.7196)"
+    k.startsWith(`mode_${n}_`)
+  ) ?? null;
+}
 
 // Pre-calc simulation types
 interface SimCase {
@@ -130,6 +162,10 @@ export default function FEMPage() {
   const stateRef     = useRef<State>({ mode1: '', mode2: '', mixAlpha: 0, defScale: 100, showDeform: true, colorBy: 'magnitude' });
   const pipelineWsRef = useRef<WebSocket | null>(null);
 
+  // live modal refs
+  const liveWsRef      = useRef<WebSocket | null>(null);
+  const liveActiveRef  = useRef(false);
+
   // pre-calc sim refs
   const casesIndexRef  = useRef<CasesIndex | null>(null);
   const simResultsRef  = useRef<Record<string, Float32Array>>({});
@@ -161,6 +197,10 @@ export default function FEMPage() {
   const [manualLoads, setManualLoads]       = useState<LoadCase>(ZERO_LOADS);
   const loadSimActiveRef                     = useRef(false);
   const currentLoadsRef                      = useRef<LoadCase>(ZERO_LOADS);
+
+  // live modal tab state
+  const [liveStatus, setLiveStatus]         = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+  const [liveInfo, setLiveInfo]             = useState<LiveInfo | null>(null);
 
   // sim tab state
   const [simParams, _setSimParams]          = useState<SimParams>({ mode: 'wind', windSpeed: 5, waveHs: 1.0, waveTp: 10 });
@@ -671,20 +711,146 @@ export default function FEMPage() {
     if (!loading && simActiveRef.current) loadAndApplySimUpdate(simParams);
   }, [simParams, loading, loadAndApplySimUpdate]);
 
+  // ── Live modal: apply FFT modal amplitudes to mesh ─────────────────────────
+  const applyLiveModal = useCallback((matchedModes: LiveMatchedMode[]) => {
+    const mesh     = meshRef.current;
+    const resData  = resDataRef.current;
+    const vorderIds = vorderRef.current;
+    const basePos  = basePosRef.current;
+    if (!mesh || !resData || !vorderIds || !basePos) return;
+
+    const geo   = mesh.geometry;
+    const count = geo.attributes.position.count;
+    const state = stateRef.current;
+
+    if (!geo.attributes.color) {
+      geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    }
+
+    const colorArr = geo.attributes.color.array as Float32Array;
+    const pos      = geo.attributes.position.array as Float32Array;
+    const values   = new Float32Array(count * 3);
+    const scalars  = new Float32Array(count);
+    let minVal = Infinity, maxVal = -Infinity;
+
+    // Sum normalised modal contributions
+    for (const { mode_id, normalized_amplitude } of matchedModes) {
+      const modeKey = findModeKey(resData, mode_id);
+      if (!modeKey) continue;
+      const modeData = resData.modes[modeKey];
+      const rk = Object.keys(modeData)[0];
+      if (!rk) continue;
+      const shapes = modeData[rk];
+      for (let vIdx = 0; vIdx < count; vIdx++) {
+        const phi = shapes[String(vorderIds[vIdx])];
+        if (!phi) continue;
+        values[vIdx * 3]     += normalized_amplitude * (phi[0] || 0);
+        values[vIdx * 3 + 1] += normalized_amplitude * (phi[1] || 0);
+        values[vIdx * 3 + 2] += normalized_amplitude * (phi[2] || 0);
+      }
+    }
+
+    for (let vIdx = 0; vIdx < count; vIdx++) {
+      const dx = values[vIdx * 3], dy = values[vIdx * 3 + 1], dz = values[vIdx * 3 + 2];
+      let scalar: number;
+      if (state.colorBy === 'x') scalar = Math.abs(dx);
+      else if (state.colorBy === 'y') scalar = Math.abs(dy);
+      else if (state.colorBy === 'z') scalar = Math.abs(dz);
+      else scalar = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      scalars[vIdx] = scalar;
+      if (scalar < minVal) minVal = scalar;
+      if (scalar > maxVal) maxVal = scalar;
+    }
+
+    const range = maxVal - minVal || 1;
+    for (let i = 0; i < count; i++) {
+      const t = (scalars[i] - minVal) / range;
+      const [r, g, b] = colorTurbo(t);
+      colorArr[i * 3] = r; colorArr[i * 3 + 1] = g; colorArr[i * 3 + 2] = b;
+    }
+
+    const s = state.showDeform ? state.defScale * 0.00005 : 0;
+    for (let i = 0; i < count; i++) {
+      pos[i * 3]     = basePos[i * 3]     + values[i * 3]     * s;
+      pos[i * 3 + 1] = basePos[i * 3 + 1] + values[i * 3 + 1] * s;
+      pos[i * 3 + 2] = basePos[i * 3 + 2] + values[i * 3 + 2] * s;
+    }
+
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate    = true;
+    geo.computeVertexNormals();
+    setCbMin(isFinite(minVal) ? minVal.toExponential(2) : '0.00e+0');
+    setCbMax(isFinite(maxVal) ? maxVal.toExponential(2) : '1.00e+0');
+  }, []);
+
+  // ── Live modal: WebSocket connect / disconnect ─────────────────────────────
+  const connectLiveModal = useCallback(async () => {
+    liveWsRef.current?.close();
+    setLiveStatus('connecting');
+    setLiveInfo(null);
+
+    // Launch signal_processing.py on the backend
+    try {
+      await fetch('http://localhost:8080/api/fem/live-scripts/start', { method: 'POST' });
+    } catch { /* non-fatal: backend may already have it running or be unreachable */ }
+
+    // Show the FEM mesh so the coloring is visible
+    if (meshRef.current) meshRef.current.visible = true;
+    setMeshVisible(true);
+
+    const ws = new WebSocket(`${BACKEND_WS}/api/fem/modal-live-ws`);
+    liveWsRef.current = ws;
+    liveActiveRef.current = true;   // re-arm after close() above may have reset it
+
+    ws.onmessage = (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+        if (data.type === 'connected') { setLiveStatus('connected'); return; }
+        if (data.type === 'error')     { setLiveStatus('error');     return; }
+        if (data.type === 'modal_update' && liveActiveRef.current) {
+          setLiveInfo(data as LiveInfo);
+          applyLiveModal((data as LiveInfo).matched_modes);
+        }
+      } catch { /* ignore malformed frames */ }
+    };
+    ws.onerror = () => setLiveStatus('error');
+    ws.onclose = () => { setLiveStatus('idle'); liveActiveRef.current = false; };
+  }, [applyLiveModal]);
+
+  const disconnectLiveModal = useCallback(async () => {
+    liveWsRef.current?.close();
+    liveWsRef.current   = null;
+    liveActiveRef.current = false;
+    setLiveStatus('idle');
+    setLiveInfo(null);
+    applyLiveModal([]);   // reset mesh to neutral
+
+    // Stop signal_processing.py
+    try {
+      await fetch('http://localhost:8080/api/fem/live-scripts/stop', { method: 'POST' });
+    } catch { /* non-fatal */ }
+  }, [applyLiveModal]);
+
+  useEffect(() => () => { liveWsRef.current?.close(); }, []);
+
   // ── Tab switch ─────────────────────────────────────────────────────────────
   const switchTab = useCallback((t: PageTab) => {
     setTab(t);
+    // Deactivate previous tab modes
+    loadSimActiveRef.current = false;
+    simActiveRef.current     = false;
+    liveActiveRef.current    = false;
+
     if (t === 'sim') {
-      loadSimActiveRef.current = false;
       simActiveRef.current = true;
       loadAndApplySimUpdate(simParamsRef.current);
     } else if (t === 'loads') {
-      simActiveRef.current = false;
       loadSimActiveRef.current = true;
       applyUpdate(currentLoadsRef.current);
+    } else if (t === 'live') {
+      liveActiveRef.current = true;
+      // keep whatever was last painted; user clicks Connect to start streaming
     } else {
-      simActiveRef.current = false;
-      loadSimActiveRef.current = false;
       applyUpdate();
     }
   }, [applyUpdate, loadAndApplySimUpdate]);
@@ -717,6 +883,7 @@ export default function FEMPage() {
             { id: 'modal', label: '⬡ Modal' },
             { id: 'loads', label: '⚡ Loads' },
             { id: 'sim',   label: '🌊 Sim' },
+            { id: 'live',  label: '📡 Live' },
           ] as { id: PageTab; label: string }[]).map(({ id, label }) => (
             <button key={id} onClick={() => switchTab(id)} style={{
               flex: 1, padding: '8px 2px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
@@ -827,7 +994,7 @@ export default function FEMPage() {
             <SharedControls uiState={uiState} setField={setField} cbMin={cbMin} cbMax={cbMax} />
           </div>
 
-        ) : (
+        ) : tab === 'sim' ? (
           /* ── Pre-calc Simulation tab ───────────────────────────────────── */
           <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
 
@@ -949,6 +1116,95 @@ export default function FEMPage() {
             <Divider />
             <SharedControls uiState={uiState} setField={setField} cbMin={cbMin} cbMax={cbMax} simMode />
           </div>
+
+        ) : (
+          /* ── Live modal tab ────────────────────────────────────────────── */
+          <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+            {/* Connection card */}
+            <div style={{ background: '#0e0e20', borderRadius: 8, border: '1px solid #1e2035', padding: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 13 }}>📡</span>
+                <span style={{ fontWeight: 700, color: '#cde', fontSize: 12 }}>Real-time FFT</span>
+                <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600,
+                  color: { idle:'#556', connecting:'#f59e0b', connected:'#10b981', error:'#ef4444' }[liveStatus] }}>
+                  ● {liveStatus.toUpperCase()}
+                </span>
+              </div>
+              <p style={{ margin: '0 0 10px', fontSize: 10, color: '#556', lineHeight: 1.5 }}>
+                Suscribe a <code style={{ color: '#9ab' }}>oc4/pose</code>, calcula FFT y
+                proyecta las amplitudes modales sobre la malla en tiempo real.
+              </p>
+              <button
+                onClick={liveStatus === 'connected' ? disconnectLiveModal : connectLiveModal}
+                disabled={liveStatus === 'connecting'}
+                style={{
+                  width: '100%', padding: '7px 10px', borderRadius: 6, border: 'none',
+                  cursor: liveStatus === 'connecting' ? 'default' : 'pointer',
+                  fontSize: 11, fontWeight: 700,
+                  background: liveStatus === 'connected' ? '#2d1010' : '#0d2035',
+                  color:      liveStatus === 'connected' ? '#ef4444' : '#7eb8f7',
+                  opacity: liveStatus === 'connecting' ? 0.6 : 1,
+                }}>
+                {liveStatus === 'connected'  ? '⏹ Stop Live'   :
+                 liveStatus === 'connecting' ? 'Connecting…'    : '▶ Start Live'}
+              </button>
+            </div>
+
+            {/* Live telemetry */}
+            {liveInfo && (
+              <>
+                <div style={{ background: '#0e0e20', borderRadius: 8, border: '1px solid #1e2035', padding: 10 }}>
+                  <span style={{ ...labelStyle, display: 'block', marginBottom: 6 }}>Signal</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                    {[
+                      ['FPS',      `${liveInfo.fps.toFixed(1)} Hz`],
+                      ['Nyquist',  `${liveInfo.nyquist_hz.toFixed(2)} Hz`],
+                      ['Buffer',   `${liveInfo.n_samples} smp`],
+                      ['Modes',    `${liveInfo.matched_modes.length} det`],
+                    ].map(([k, v]) => (
+                      <div key={k} style={{ background: '#181828', borderRadius: 4, padding: '4px 8px' }}>
+                        <div style={{ color: '#556', fontSize: 10 }}>{k}</div>
+                        <div style={{ color: '#7eb8f7', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {liveInfo.matched_modes.length > 0 && (
+                  <div style={{ background: '#0e0e20', borderRadius: 8, border: '1px solid #1e2035', padding: 10 }}>
+                    <span style={{ ...labelStyle, display: 'block', marginBottom: 6 }}>Matched modes</span>
+                    {liveInfo.matched_modes.slice(0, 8).map(m => (
+                      <div key={m.mode_id} style={{ marginBottom: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                          <span style={{ color: '#cde', fontSize: 11 }}>Mode {m.mode_id}</span>
+                          <span style={{ color: '#556', fontSize: 10, fontFamily: 'monospace' }}>
+                            {m.freq_hz.toFixed(3)} Hz
+                          </span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 2, background: '#1e2035' }}>
+                          <div style={{
+                            height: '100%', borderRadius: 2,
+                            width: `${(m.normalized_amplitude * 100).toFixed(1)}%`,
+                            background: `hsl(${200 + m.normalized_amplitude * 60},80%,60%)`,
+                          }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {liveInfo.matched_modes.length === 0 && (
+                  <div style={{ fontSize: 11, color: '#556', textAlign: 'center', padding: '8px 0' }}>
+                    Sin modos detectados — acumulando muestras…
+                  </div>
+                )}
+              </>
+            )}
+
+            <Divider />
+            <SharedControls uiState={uiState} setField={setField} cbMin={cbMin} cbMax={cbMax} />
+          </div>
         )}
 
         {/* ── Scene objects visibility (persistent, all tabs) ── */}
@@ -1010,14 +1266,26 @@ export default function FEMPage() {
         )}
 
         {/* Live indicators */}
-        {(mqttConnected || (tab === 'sim' && simWsConnected)) && (
+        {(mqttConnected || (tab === 'sim' && simWsConnected) || liveStatus === 'connected') && (
           <div style={{ position: 'absolute', top: 12, right: 12,
             background: '#0e1e0e', border: '1px solid #10b98133', borderRadius: 20,
             padding: '4px 12px', fontSize: 11, color: '#10b981', fontWeight: 700,
             display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981',
               display: 'inline-block', animation: 'pulse 1.2s ease-in-out infinite' }} />
-            {mqttConnected ? `📡 ${mqttTopic}` : '🏗️ Node editor'}
+            {liveStatus === 'connected'
+              ? `📡 FFT Live${liveInfo ? `  ${liveInfo.fps.toFixed(0)} Hz` : ''}`
+              : mqttConnected ? `📡 ${mqttTopic}` : '🏗️ Node editor'}
+          </div>
+        )}
+
+        {/* Live Nyquist + modes badge */}
+        {tab === 'live' && liveStatus === 'connected' && liveInfo && (
+          <div style={{ position: 'absolute', bottom: 12, right: 12,
+            background: '#0a0a20', border: '1px solid #1e2035', borderRadius: 8,
+            padding: '6px 12px', fontSize: 11, color: '#9ab', lineHeight: 1.6 }}>
+            <div>Nyquist: <span style={{ color: '#7eb8f7', fontFamily: 'monospace' }}>{liveInfo.nyquist_hz.toFixed(2)} Hz</span></div>
+            <div>Modos activos: <span style={{ color: '#7eb8f7', fontFamily: 'monospace' }}>{liveInfo.matched_modes.length}</span></div>
           </div>
         )}
 

@@ -5,6 +5,26 @@ import { StructuralEngine, type StructuralAnalysisResult, type EnvironmentalCond
 // Initialize Physics Engine
 const physicsEngine = new StructuralEngine();
 
+// Debounce helper for stream value pushes (avoid flooding backend on every WS message)
+let _streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingStreamValues: Record<string, { lastValue: unknown; updatedAt: string }> = {};
+
+function scheduleStreamFlush() {
+  if (_streamFlushTimer) return;
+  _streamFlushTimer = setTimeout(() => {
+    _streamFlushTimer = null;
+    const batch = _pendingStreamValues;
+    _pendingStreamValues = {};
+    Object.entries(batch).forEach(([id, payload]) => {
+      fetch(`http://localhost:8080/persist/stream-values/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    });
+  }, 1000);
+}
+
 // Default Environmental Conditions (can be updated from weather API)
 const DEFAULT_ENV: EnvironmentalConditions = {
     windSpeed: 12, // m/s (Rated wind speed for NREL 5MW)
@@ -167,7 +187,8 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
           updatedAt: new Date().toISOString()
         };
 
-        // Push to backend stream values
+        // Push to backend stream values (debounced — at most once per second)
+        const updatedAt = streamData.updatedAt;
         Object.entries({
           'twin.surge': streamData.surge,
           'twin.sway': streamData.sway,
@@ -179,12 +200,9 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
           'twin.tower': streamData.towerStress,
           'twin.fatigue': streamData.fatigueLife
         }).forEach(([id, value]) => {
-          fetch(`http://localhost:8080/persist/stream-values/${id}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lastValue: value, updatedAt: streamData.updatedAt })
-          }).catch(() => {});
+          _pendingStreamValues[id] = { lastValue: value, updatedAt };
         });
+        scheduleStreamFlush();
       } catch (e) {
         console.error('Error parsing WebSocket message', e);
       }

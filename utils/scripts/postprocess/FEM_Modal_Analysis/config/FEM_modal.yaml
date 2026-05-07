@@ -1,0 +1,2 @@
+config:
+  keypoint_analysis: 'pilar_center'

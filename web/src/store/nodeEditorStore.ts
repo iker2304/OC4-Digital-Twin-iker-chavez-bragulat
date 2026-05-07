@@ -67,7 +67,7 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
       { id: 'payload', label: 'Payload', dataType: 'json' },
       { id: 'topic', label: 'Topic', dataType: 'string' },
     ],
-    defaultConfig: { broker: 'localhost', port: 1883, topic: 'oc4/#', qos: 0 },
+    defaultConfig: { broker: 'mqtt', port: 1883, topic: 'oc4/#', qos: 0 },
   },
   {
     type: 'http_input',
@@ -149,10 +149,58 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
       { id: 'file_name', label: 'Camera ID', dataType: 'string' },
       { id: 'frame_info', label: 'Frame Info', dataType: 'json' },
     ],
-    defaultConfig: { cameraIndex: 0 },
+    defaultConfig: { cameraIndex: 0, mjpegUrl: 'http://host.docker.internal:8001/video_feed' },
   },
 
   // PROCESSORS
+  {
+    type: 'detection_parser',
+    category: 'processor',
+    label: 'Detection Parser',
+    description: 'Extrae keypoints, bounding boxes, clase y orientación del payload MQTT de detección (oc4/pose)',
+    icon: '🎯',
+    color: '#f59e0b',
+    inputs: [
+      { id: 'payload', label: 'MQTT Payload', dataType: 'json' },
+    ],
+    outputs: [
+      { id: 'detections', label: 'Detections', dataType: 'json' },
+      { id: 'keypoints', label: 'Keypoints (px)', dataType: 'json' },
+      { id: 'bbox', label: 'Bounding Box', dataType: 'json' },
+      { id: 'class_name', label: 'Class', dataType: 'string' },
+      { id: 'confidence', label: 'Confidence', dataType: 'number' },
+      { id: 'pose', label: 'Pose (rvec/tvec)', dataType: 'json' },
+      { id: 'orientation', label: 'Orientation (°/m)', dataType: 'json' },
+      { id: 'num_detections', label: 'Num Detections', dataType: 'number' },
+    ],
+    defaultConfig: {
+      object_index: 0,
+      min_confidence: 0.0,
+    },
+  },
+  {
+    type: 'keypoint_selector',
+    category: 'processor',
+    label: 'Keypoint Selector',
+    description: 'Convierte keypoints 2D (px) a 3D (m) y selecciona uno por nombre. Acepta salida completa del Detection Parser (con keypoints y pose).',
+    icon: '📍',
+    color: '#ec4899',
+    inputs: [
+      { id: 'keypoints', label: 'Keypoints (px)', dataType: 'json' },
+      { id: 'pose', label: 'Pose (rvec/tvec)', dataType: 'json' },
+    ],
+    outputs: [
+      { id: 'x', label: 'X (m)', dataType: 'number' },
+      { id: 'y', label: 'Y (m)', dataType: 'number' },
+      { id: 'z', label: 'Z (m)', dataType: 'number' },
+      { id: 'displacement', label: '|d| = √(x²+y²+z²) (m)', dataType: 'number' },
+      { id: 'keypoint_data', label: 'Keypoint Data', dataType: 'json' },
+    ],
+    defaultConfig: {
+      keypoint_name: 'Hub',
+      min_confidence: 0.0,
+    },
+  },
   {
     type: 'js_script',
     category: 'processor',
@@ -227,9 +275,10 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
       { id: 'bounding_boxes', label: 'BBoxes', dataType: 'json' },
       { id: 'confidence', label: 'Confidence Score', dataType: 'number' },
       { id: 'labels', label: 'Class Labels', dataType: 'json' },
+      { id: 'predictions', label: 'Predictions (full)', dataType: 'json' },
       { id: 'raw_tensor', label: 'Raw Output Tensor', dataType: 'any' },
     ],
-    defaultConfig: { modelFile: '', device: 'cuda', confidenceThreshold: 0.5 },
+    defaultConfig: { modelFile: '', device: 'cpu', confidenceThreshold: 0.3, minKeypointConfidence: 0.3, discardEmptyKeypoints: false },
   },
   {
     type: 'signal_smoothing',

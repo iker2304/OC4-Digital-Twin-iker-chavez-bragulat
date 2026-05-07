@@ -9,9 +9,9 @@ interface CustomNodeData {
   label: string;
   icon: string;
   color: string;
-  inputs: { id: string; label: string; dataType: string }[];
-  outputs: { id: string; label: string; dataType: string }[];
-  config: Record<string, unknown>;
+  inputs?: { id: string; label: string; dataType: string }[];
+  outputs?: { id: string; label: string; dataType: string }[];
+  config?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -41,6 +41,9 @@ const CustomNode = memo(({ id, data, selected }: NodeProps) => {
   }, [id, selectNode]);
 
   const color = nodeData.color || '#6366f1';
+  const inputs = nodeData.inputs ?? [];
+  const outputs = nodeData.outputs ?? [];
+  const config = nodeData.config ?? {};
 
   return (
     <div
@@ -97,7 +100,7 @@ const CustomNode = memo(({ id, data, selected }: NodeProps) => {
         {/* Ports */}
         <div className="px-3 py-2 space-y-0.5 relative">
           {/* Input ports */}
-          {nodeData.inputs.map((port) => (
+          {inputs.map((port) => (
             <div
               key={port.id}
               className="flex items-center gap-2 relative"
@@ -134,12 +137,12 @@ const CustomNode = memo(({ id, data, selected }: NodeProps) => {
           ))}
 
           {/* Divider if both inputs and outputs */}
-          {nodeData.inputs.length > 0 && nodeData.outputs.length > 0 && (
+          {inputs.length > 0 && outputs.length > 0 && (
             <div className="border-t border-gray-100 my-1" />
           )}
 
           {/* Output ports */}
-          {nodeData.outputs.map((port) => (
+          {outputs.map((port) => (
             <div
               key={port.id}
               className="flex items-center gap-2 relative justify-end"
@@ -176,8 +179,8 @@ const CustomNode = memo(({ id, data, selected }: NodeProps) => {
           ))}
 
           {/* Show key config values */}
-          {Object.keys(nodeData.config).slice(0, 2).map(key => {
-            const val = nodeData.config[key];
+          {Object.keys(config).slice(0, 2).map(key => {
+            const val = config[key];
             if (typeof val === 'object') return null;
             return (
               <div

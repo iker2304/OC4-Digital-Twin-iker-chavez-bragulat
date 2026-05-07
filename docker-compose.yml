@@ -21,10 +21,13 @@ services:
     environment:
       - MQTT_BROKER=mqtt
       - MQTT_PORT=1883
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - mqtt
     volumes:
       - ./data:/app/data
+      - ./utils:/app/utils
     restart: always
 
   # Frontend Web App

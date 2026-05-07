@@ -33,14 +33,17 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
     label: string;
     icon: string;
     color: string;
-    inputs: { id: string; label: string; dataType: string }[];
-    outputs: { id: string; label: string; dataType: string }[];
-    config: Record<string, unknown>;
+    inputs?: { id: string; label: string; dataType: string }[];
+    outputs?: { id: string; label: string; dataType: string }[];
+    config?: Record<string, unknown>;
   };
 
   const color = data.color || '#6366f1';
   const category = data.category as keyof typeof CATEGORY_META;
   const catMeta = CATEGORY_META[category];
+  const inputs = data.inputs ?? [];
+  const outputs = data.outputs ?? [];
+  const config = data.config ?? {};
 
   const handleConfigChange = (key: string, value: unknown) => {
     updateNodeConfig(node.id, { [key]: value });
@@ -84,7 +87,7 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
         <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Ports</p>
           <div className="space-y-1">
-            {data.inputs.map(p => (
+            {inputs.map(p => (
               <div key={p.id} className="flex items-center gap-2">
                 <div
                   className="w-2 h-2 rounded-full shrink-0"
@@ -102,7 +105,7 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
                 </span>
               </div>
             ))}
-            {data.outputs.map(p => (
+            {outputs.map(p => (
               <div key={p.id} className="flex items-center gap-2">
                 <div
                   className="w-2 h-2 rounded-full shrink-0"
@@ -120,7 +123,7 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
                 </span>
               </div>
             ))}
-            {data.inputs.length === 0 && data.outputs.length === 0 && (
+            {inputs.length === 0 && outputs.length === 0 && (
               <p className="text-[11px] text-gray-400 italic">No ports defined</p>
             )}
           </div>
@@ -130,7 +133,7 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
         <div className="px-4 py-3">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Configuration</p>
           <div className="space-y-3">
-            {Object.entries(data.config).map(([key, value]) => (
+            {Object.entries(config).map(([key, value]) => (
               <div key={key}>
                 <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 capitalize">
                   {key.replace(/_/g, ' ')}

@@ -37,8 +37,6 @@ _requested_source = None
 _source_change_event = threading.Event()
 _source_lock = threading.Lock()
 _current_source = 0
-# Tracks whether the last switch succeeded or was reverted to a fallback source.
-# Exposed via /current_source so the frontend can detect failed switches.
 _switch_failed = False  # True if last switch attempt could not open the target camera
 
 
@@ -360,11 +358,15 @@ def main(cfg: DictConfig) -> None:
         return
 
     import torch
-    device = 'mps' if torch.backends.mps.is_available() else 'cpu'
-    if device == 'mps':
+    if torch.cuda.is_available():
+        device = 'cuda'
+        print(f"Using CUDA GPU: {torch.cuda.get_device_name(0)}")
+    elif torch.backends.mps.is_available():
+        device = 'mps'
         print("Using MPS (Metal Performance Shaders) for acceleration.")
     else:
-        print(f"Using device: {device}")
+        device = 'cpu'
+        print("Using device: CPU (no GPU detected)")
         
     print(f"Loading model: {best_model}")
     model = YOLO(best_model).to(device)
@@ -584,7 +586,12 @@ def main(cfg: DictConfig) -> None:
     video_writer = None
     all_detections = []
     results = []
-    
+
+    # FPS counter
+    fps_last_time = time.time()
+    fps_counter = 0
+    fps_display = 0.0
+
     # Rate Limiting for MQTT
     last_mqtt_publish_time = 0
     mqtt_publish_interval = 0.1 
@@ -867,7 +874,7 @@ def main(cfg: DictConfig) -> None:
             max_det=2,
             verbose=False,
             device=device,
-            half=(device == 'mps'), # FP16 is faster on Mac/MPS
+            half=(device in ('cuda', 'mps')), # FP16 is faster on GPU
             imgsz=640
         )
 
@@ -901,19 +908,24 @@ def main(cfg: DictConfig) -> None:
                     current_intrinsic[0, 2] *= scale_factor
                     current_intrinsic[1, 2] *= scale_factor
 
-            if i.keypoints is not None and current_cfg["pnp_enabled"]:
+            if i.keypoints is not None:
                 kpts = i.keypoints.xy.cpu().numpy()
                 classes = i.boxes.cls.cpu().numpy()
+                confs = i.boxes.conf.cpu().numpy()
+                boxes_xyxy = i.boxes.xyxy.cpu().numpy()
                 names = i.names
-                
+
                 obj_ids = i.boxes.id.cpu().numpy().astype(int) if i.boxes.id is not None else range(len(kpts))
                 all_frame_points = {}
+                all_frame_detections = []
                 frame_pose = None
                 frame_orientation = None
                 for idx, obj_idx in enumerate(range(len(kpts))):
                     class_name = names[int(classes[obj_idx])]
                     track_id = obj_ids[idx]
-                    
+                    conf_score = float(confs[obj_idx])
+                    bbox = boxes_xyxy[obj_idx].tolist()
+
                     pnp_points = {}
                     rvec, tvec = None, None
                     obj_payload = {
@@ -921,6 +933,18 @@ def main(cfg: DictConfig) -> None:
                         "obj_id": int(track_id),
                         "class": class_name,
                         "points": pnp_points
+                    }
+                    detection_entry = {
+                        "obj_id": int(track_id),
+                        "class": class_name,
+                        "confidence": round(conf_score, 4),
+                        "bbox": {
+                            "x1": round(bbox[0], 2),
+                            "y1": round(bbox[1], 2),
+                            "x2": round(bbox[2], 2),
+                            "y2": round(bbox[3], 2)
+                        },
+                        "keypoints": pnp_points
                     }
                 
                     frame_timestamp = None
@@ -1046,8 +1070,15 @@ def main(cfg: DictConfig) -> None:
                                     orientation_data["Distance"]["z"]
                                 ])
 
+                    # Propagate pose/orientation into detection_entry
+                    if "pose" in obj_payload:
+                        detection_entry["pose"] = obj_payload["pose"]
+                    if "orientation" in obj_payload:
+                        detection_entry["orientation"] = obj_payload["orientation"]
+
                     # Accumulate keypoints and pose/orientation across all detected objects
                     all_frame_points.update(pnp_points)
+                    all_frame_detections.append(detection_entry)
                     if "pose" in obj_payload and frame_pose is None:
                         frame_pose = obj_payload["pose"]
                     if "orientation" in obj_payload and frame_orientation is None:
@@ -1058,8 +1089,14 @@ def main(cfg: DictConfig) -> None:
 
                 # Publish one combined payload per frame (after all objects processed)
                 current_time = time.time()
-                if mqtt_client and all_frame_points and (current_time - last_mqtt_publish_time) >= mqtt_publish_interval:
-                    combined_payload = {"frame": frame_indx, "points": all_frame_points}
+                if mqtt_client and all_frame_detections and (current_time - last_mqtt_publish_time) >= mqtt_publish_interval:
+                    combined_payload = {
+                        "frame": frame_indx,
+                        "num_detections": len(all_frame_detections),
+                        "detections": all_frame_detections,
+                        "points": all_frame_points,
+                        "fps": round(fps_display, 2)
+                    }
                     if frame_pose is not None:
                         combined_payload["pose"] = frame_pose
                     if frame_orientation is not None:
@@ -1075,6 +1112,16 @@ def main(cfg: DictConfig) -> None:
                     cv2.circle(annotated_frame, (30, 30), 10, (0, 0, 255), -1)
                     cv2.putText(annotated_frame, "NO MQTT", (50, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
+
+        # FPS overlay
+        fps_counter += 1
+        now_fps = time.time()
+        if now_fps - fps_last_time >= 1.0:
+            fps_display = fps_counter / (now_fps - fps_last_time)
+            fps_counter = 0
+            fps_last_time = now_fps
+        cv2.putText(annotated_frame, f"FPS: {fps_display:.1f}", (10, annotated_frame.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
         # Always update stream frame, even when there are no detections.
         # Quality 80 strikes a good balance between image fidelity and encoding speed.

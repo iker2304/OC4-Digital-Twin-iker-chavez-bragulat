@@ -65,19 +65,30 @@ Write-Host " - Grafana: http://localhost:3000"
 Write-Host " - Backend API: http://localhost:8080"
 Write-Host " - Video Feed: http://localhost:8001/video_feed"
 
-# 3. Start Detection Script (Runs locally to access Webcam)
-Write-Host "Starting Pose Detection Script (Press Ctrl+C to stop)..." -ForegroundColor Cyan
-Write-Host "NOTE: This script runs locally to access your Webcam." -ForegroundColor Gray
-
 # Ensure we are in the right directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
-# Check for venv
+# Check for venv and activate
 if (Test-Path ".venv\Scripts\Activate.ps1") {
     Write-Host "Activating virtual environment..."
     & .\.venv\Scripts\Activate.ps1
 }
 
 $env:PYTHONPATH = $PWD
+
+# 3. Start FEM Modal Analysis script in a separate window (background)
+Write-Host "Starting FEM Modal Analysis Script..." -ForegroundColor Cyan
+$femDir = Join-Path $ScriptDir "utils\scripts\postprocess\FEM_Modal_Analysis"
+$pythonExe = if (Test-Path ".venv\Scripts\python.exe") { Join-Path $ScriptDir ".venv\Scripts\python.exe" } else { "python" }
+Start-Process -FilePath "powershell.exe" -ArgumentList `
+    "-NoExit", "-Command",
+    "`$env:PYTHONPATH='$ScriptDir'; Set-Location '$femDir'; & '$pythonExe' signal_processing.py" `
+    -WindowStyle Normal
+Write-Host "FEM Modal Analysis started in a separate window." -ForegroundColor Green
+
+# 4. Start Detection Script (Runs locally to access Webcam)
+Write-Host "Starting Pose Detection Script (Press Ctrl+C to stop)..." -ForegroundColor Cyan
+Write-Host "NOTE: This script runs locally to access your Webcam." -ForegroundColor Gray
+
 python utils/scripts/detection/pose_detection.py

@@ -31,10 +31,6 @@ echo " - Grafana: http://localhost:3000"
 echo " - Backend API: http://localhost:8080"
 echo " - Video Feed: http://localhost:8001/video_feed"
 
-# 3. Start Detection Script
-echo "Starting Pose Detection Script (Press Ctrl+C to stop)..."
-echo "NOTE: This script runs locally to access your Webcam."
-
 # Activate venv
 if [ -f ".venv/bin/activate" ]; then
     echo "Activating virtual environment (.venv)..."
@@ -47,4 +43,22 @@ else
 fi
 
 export PYTHONPATH=$(pwd)
+
+# 3. Start FEM Modal Analysis script in the background
+echo "Starting FEM Modal Analysis Script (background)..."
+FEM_DIR="$(pwd)/utils/scripts/postprocess/FEM_Modal_Analysis"
+(cd "$FEM_DIR" && PYTHONPATH="$(pwd)/../../../../.." python signal_processing.py) &
+FEM_PID=$!
+echo "FEM Modal Analysis started (PID: $FEM_PID)"
+
+# Trap Ctrl+C to also kill the background FEM process
+trap "echo 'Stopping...'; kill $FEM_PID 2>/dev/null; exit 0" INT TERM
+
+# 4. Start Detection Script
+echo "Starting Pose Detection Script (Press Ctrl+C to stop)..."
+echo "NOTE: This script runs locally to access your Webcam."
+
 python utils/scripts/detection/pose_detection.py
+
+# Clean up FEM process when detection exits
+kill $FEM_PID 2>/dev/null

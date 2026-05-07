@@ -719,10 +719,70 @@ class FlowExecutor:
             },
         )
 
+    def _read_mjpeg_frame(self, url: str) -> Optional[np.ndarray]:
+        """Read a single JPEG frame from an MJPEG HTTP stream."""
+        import urllib.request
+        try:
+            req = urllib.request.urlopen(url, timeout=3)
+            raw = b""
+            while True:
+                chunk = req.read(4096)
+                if not chunk:
+                    break
+                raw += chunk
+                # Find a complete JPEG (SOI=0xFFD8 … EOI=0xFFD9)
+                start = raw.find(b"\xff\xd8")
+                end = raw.find(b"\xff\xd9")
+                if start != -1 and end != -1 and end > start:
+                    jpg = raw[start:end + 2]
+                    nparr = np.frombuffer(jpg, np.uint8)
+                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    req.close()
+                    return frame
+                # Avoid unbounded growth
+                if len(raw) > 2_000_000:
+                    break
+            req.close()
+        except Exception as exc:
+            logger.warning("[FlowExecutor] MJPEG read failed url=%s error=%s", url, exc)
+        return None
+
     def execute_camera(self, node_id: str, config: Dict) -> Dict[str, Any]:
         started = time.perf_counter()
+        mjpeg_url = str(config.get("mjpegUrl", "") or "").strip()
         camera_index = int(config.get("cameraIndex", 0))
 
+        # Prefer MJPEG stream (works from Docker by pointing to host.docker.internal)
+        if mjpeg_url:
+            frame = self._read_mjpeg_frame(mjpeg_url)
+            total_ms = (time.perf_counter() - started) * 1000
+            if frame is None:
+                return self._store_output(
+                    node_id,
+                    {
+                        "file_data": None,
+                        "file_name": "mjpeg_stream",
+                        "frame_info": {"source": mjpeg_url, "is_open": False},
+                        "error": f"Could not read frame from MJPEG stream: {mjpeg_url}",
+                    },
+                )
+            ok, buffer = cv2.imencode(".jpg", frame)
+            if not ok:
+                return self._error_result(node_id, "camera_input", "Failed to encode MJPEG frame")
+            h, w = frame.shape[:2]
+            frame_base64 = base64.b64encode(buffer).decode("utf-8")
+            self._push_trace(node_id, "camera_input", "capture", "ok", source="mjpeg", url=mjpeg_url, latency_ms=round(total_ms, 3))
+            return self._store_output(
+                node_id,
+                {
+                    "file_data": frame_base64,
+                    "file_name": "mjpeg_stream",
+                    "frame_info": {"source": mjpeg_url, "width": w, "height": h, "resolution": f"{w}x{h}", "is_open": True},
+                    "diagnostics": {"nodeId": node_id, "nodeType": "camera_input", "source": "mjpeg", "url": mjpeg_url, "latency_ms": round(total_ms, 3)},
+                },
+            )
+
+        # Fallback: direct OpenCV capture (works when backend runs on the host)
         cam = self.camera_readers.get(node_id)
         if cam is None or cam.camera_index != camera_index:
             if cam:
@@ -777,8 +837,6 @@ class FlowExecutor:
 
     def execute_ai_inference(self, node_id: str, config: Dict, input_data: Any) -> Dict[str, Any]:
         started = time.perf_counter()
-        # Se aceptan varias claves porque el frontend histórico y el actual no usan
-        # exactamente el mismo nombre para la ruta del modelo ni para la confianza.
         model_path = str(
             config.get("modelPath")
             or config.get("modelFile")
@@ -788,8 +846,8 @@ class FlowExecutor:
         device = config.get("device")
         conf_threshold = _coerce_float(config.get("confidenceThreshold", config.get("confidence", 0.5)), 0.5)
         keypoint_conf_threshold = _coerce_float(
-            config.get("minKeypointConfidence", config.get("keypointConfidence", 0.7)),
-            0.7,
+            config.get("minKeypointConfidence", config.get("keypointConfidence", 0.3)),
+            0.3,
         )
         keypoint_labels = config.get("keypointLabels") if isinstance(config.get("keypointLabels"), list) else None
 
@@ -864,11 +922,13 @@ class FlowExecutor:
 
         decode_ms = (time.perf_counter() - decode_started) * 1000
         frame_h, frame_w = frame.shape[:2]
+        discard_empty_kpts = bool(config.get("discardEmptyKeypoints", False))
         inference_result = model.predict(
             frame,
             conf=conf_threshold,
             keypoint_conf=keypoint_conf_threshold,
             keypoint_labels=keypoint_labels,
+            discard_empty_keypoints=discard_empty_kpts,
         )
 
         if isinstance(inference_result, dict):
@@ -1105,7 +1165,11 @@ class FlowExecutor:
         if not MQTT_AVAILABLE:
             return self._error_result(node_id, "mqtt_subscribe", "MQTT manager not available")
 
-        broker = str(config.get("broker", "localhost"))
+        _default_broker = os.environ.get("MQTT_BROKER", "localhost")
+        broker = str(config.get("broker") or _default_broker)
+        # Treat "localhost" as a signal to use the env-var broker when running in Docker
+        if broker == "localhost" and _default_broker != "localhost":
+            broker = _default_broker
         port = int(config.get("port", 1883))
         topic = str(config.get("topic", "#"))
         qos = int(config.get("qos", 0))
@@ -1191,6 +1255,167 @@ class FlowExecutor:
         buf = self._terminal_buffers.get(node_id)
         return list(buf) if buf else []
 
+    def execute_detection_parser(self, node_id: str, config: Dict, input_data: Any) -> Dict[str, Any]:
+        """Parse MQTT detection payload (oc4/pose) into structured outputs."""
+        object_index = int(config.get("object_index", 0))
+        min_confidence = float(config.get("min_confidence", 0.0))
+
+        # Accept raw dict or JSON string
+        if isinstance(input_data, str):
+            try:
+                input_data = json.loads(input_data)
+            except Exception:
+                return self._error_result(node_id, "detection_parser", "Input is not valid JSON")
+
+        if not isinstance(input_data, dict):
+            return self._error_result(node_id, "detection_parser", "Expected a JSON object as input")
+
+        detections: List[Dict] = input_data.get("detections", [])
+        num_detections = input_data.get("num_detections", len(detections))
+
+        # Filter by confidence
+        if min_confidence > 0.0:
+            detections = [d for d in detections if d.get("confidence", 1.0) >= min_confidence]
+
+        target = detections[object_index] if object_index < len(detections) else (detections[0] if detections else None)
+
+        keypoints = target.get("keypoints") if target else None
+        bbox = target.get("bbox") if target else None
+        class_name = target.get("class") if target else None
+        confidence = target.get("confidence") if target else None
+        pose = target.get("pose") if target else input_data.get("pose")
+        orientation = target.get("orientation") if target else input_data.get("orientation")
+
+        self._push_trace(node_id, "detection_parser", "parse", "ok",
+                         num_detections=num_detections, object_index=object_index)
+
+        return self._store_output(node_id, {
+            "detections": detections,
+            "keypoints": keypoints,
+            "bbox": bbox,
+            "class_name": class_name,
+            "confidence": confidence,
+            "pose": pose,
+            "orientation": orientation,
+            "num_detections": num_detections,
+        })
+
+    # Path to 3D reference points — in Docker: /app/app/flow_executor.py → /app/utils/...
+    _POINTS_3D_PATH = os.path.join(
+        os.path.dirname(__file__), "..",
+        "utils", "scripts", "postprocess", "geometry", "utils", "3D_points", "3D_points.json"
+    )
+    _points_3d_cache: Optional[Dict] = None
+
+    def _load_points_3d(self) -> Dict:
+        if self._points_3d_cache is not None:
+            return self._points_3d_cache
+        path = os.path.abspath(self._POINTS_3D_PATH)
+        with open(path, "r") as f:
+            self.__class__._points_3d_cache = json.load(f)
+        return self._points_3d_cache
+
+    def execute_keypoint_selector(self, node_id: str, config: Dict, input_data: Any) -> Dict[str, Any]:
+        """Convert keypoints (px) to 3D (m) using model reference points, then extract one by name."""
+        keypoint_name = str(config.get("keypoint_name", "Hub")).strip()
+        min_confidence = float(config.get("min_confidence", 0.0))
+
+        if isinstance(input_data, str):
+            try:
+                input_data = json.loads(input_data)
+            except Exception:
+                return self._error_result(node_id, "keypoint_selector", "Input is not valid JSON")
+
+        if not isinstance(input_data, dict):
+            return self._error_result(node_id, "keypoint_selector", "Expected a JSON object as input")
+
+        # If input already has keypoints_3d (legacy path), use it directly
+        if "keypoints_3d" in input_data:
+            keypoints_3d: Dict = input_data["keypoints_3d"]
+        else:
+            # Convert from px keypoints + optional pose
+            if "keypoints" in input_data:
+                raw_keypoints: Dict = input_data.get("keypoints") or {}
+                pose: Optional[Dict] = input_data.get("pose")
+            else:
+                raw_keypoints = input_data
+                pose = None
+
+            try:
+                points_3d = self._load_points_3d()
+            except Exception as e:
+                return self._error_result(node_id, "keypoint_selector", f"Cannot load 3D points: {e}")
+
+            R: Optional[np.ndarray] = None
+            tvec: Optional[np.ndarray] = None
+            if pose and "rvec" in pose and "tvec" in pose:
+                rvec_arr = np.array(pose["rvec"], dtype=np.float64).reshape(3, 1)
+                tvec_arr = np.array(pose["tvec"], dtype=np.float64).reshape(3, 1)
+                R, _ = cv2.Rodrigues(rvec_arr)
+                tvec = tvec_arr
+
+            keypoints_3d = {}
+            for name, kp in raw_keypoints.items():
+                if not isinstance(kp, dict):
+                    continue
+                if kp.get("confidence", 1.0) < min_confidence:
+                    continue
+                if name not in points_3d:
+                    continue
+                p3 = points_3d[name]
+                entry: Dict[str, Any] = {
+                    "x_m": p3["x"],
+                    "y_m": p3["y"],
+                    "z_m": p3["z"],
+                    "px_x": kp.get("x"),
+                    "px_y": kp.get("y"),
+                    "confidence": kp.get("confidence"),
+                }
+                if R is not None and tvec is not None:
+                    world_pt = np.array([[p3["x"]], [p3["y"]], [p3["z"]]], dtype=np.float64)
+                    cam_pt = R @ world_pt + tvec
+                    entry["cam_x_m"] = round(float(cam_pt[0]), 4)
+                    entry["cam_y_m"] = round(float(cam_pt[1]), 4)
+                    entry["cam_z_m"] = round(float(cam_pt[2]), 4)
+                keypoints_3d[name] = entry
+
+        if keypoint_name not in keypoints_3d:
+            available = list(keypoints_3d.keys())
+            return self._error_result(
+                node_id, "keypoint_selector",
+                f"Keypoint '{keypoint_name}' not found. Available: {available}"
+            )
+
+        kp = keypoints_3d[keypoint_name]
+        # Prefer camera-frame coords (dynamic, change with pose) over static world coords
+        if "cam_x_m" in kp:
+            x = float(kp["cam_x_m"])
+            y = float(kp["cam_y_m"])
+            z = float(kp["cam_z_m"])
+        else:
+            x = float(kp.get("x_m", kp.get("x", 0.0)))
+            y = float(kp.get("y_m", kp.get("y", 0.0)))
+            z = float(kp.get("z_m", kp.get("z", 0.0)))
+        displacement = float(np.sqrt(x**2 + y**2 + z**2))
+
+        self._push_trace(node_id, "keypoint_selector", "select", "ok",
+                         keypoint=keypoint_name, x=x, y=y, z=z, displacement=displacement)
+
+        return self._store_output(node_id, {
+            "x": round(x, 6),
+            "y": round(y, 6),
+            "z": round(z, 6),
+            "displacement": round(displacement, 6),
+            "keypoint_data": {
+                "name": keypoint_name,
+                "x_m": round(x, 6),
+                "y_m": round(y, 6),
+                "z_m": round(z, 6),
+                "displacement_m": round(displacement, 6),
+                **{k: v for k, v in kp.items() if k not in ("x_m", "y_m", "z_m")},
+            },
+        })
+
     def execute_node(self, node_type: str, node_id: str, config: Dict, input_data: Any = None) -> Dict[str, Any]:
         if node_type == "file_reader":
             return self.execute_file_reader(node_id, config)
@@ -1202,6 +1427,10 @@ class FlowExecutor:
             return self.execute_dashboard_stream(node_id, config, input_data)
         if node_type == "mqtt_subscribe":
             return self.execute_mqtt_subscribe(node_id, config)
+        if node_type == "detection_parser":
+            return self.execute_detection_parser(node_id, config, input_data)
+        if node_type == "keypoint_selector":
+            return self.execute_keypoint_selector(node_id, config, input_data)
         if node_type == "terminal_output":
             return self.execute_terminal_output(node_id, config, input_data)
         if node_type == "wind_load":
@@ -1234,7 +1463,10 @@ class FlowExecutor:
                         None,
                     )
 
-                target_input = outputs.get(source_id, {}).get(source_handle)
+                source_output = outputs.get(source_id, {})
+                target_input = source_output.get(source_handle)
+                if target_input is None and source_handle not in source_output:
+                    target_input = source_output
                 outputs[target_id] = self.execute_node(
                     target_node["data"]["type"],
                     target_node["id"],
@@ -1261,30 +1493,46 @@ class FlowExecutor:
             iteration += 1
             outputs: Dict[str, Dict[str, Any]] = {}
 
-            for edge in edges:
-                source_id = edge.get("source")
-                target_id = edge.get("target")
-                source_handle = edge.get("sourceHandle", "file_data")
+            try:
+                for edge in edges:
+                    source_id = edge.get("source")
+                    target_id = edge.get("target")
+                    source_handle = edge.get("sourceHandle", "file_data")
 
-                if source_id in node_map and target_id in node_map:
-                    source_node = node_map[source_id]
-                    target_node = node_map[target_id]
+                    if source_id in node_map and target_id in node_map:
+                        source_node = node_map[source_id]
+                        target_node = node_map[target_id]
 
-                    if source_id not in outputs:
-                        outputs[source_id] = self.execute_node(
-                            source_node["data"]["type"],
-                            source_node["id"],
-                            source_node["data"].get("config", {}),
-                            None,
-                        )
+                        if source_id not in outputs:
+                            try:
+                                outputs[source_id] = self.execute_node(
+                                    source_node["data"]["type"],
+                                    source_node["id"],
+                                    source_node["data"].get("config", {}),
+                                    None,
+                                )
+                            except Exception as exc:
+                                logger.exception("[FlowExecutor] Node %s (%s) raised: %s", source_id, source_node["data"]["type"], exc)
+                                outputs[source_id] = {"error": str(exc)}
 
-                    target_input = outputs.get(source_id, {}).get(source_handle)
-                    outputs[target_id] = self.execute_node(
-                        target_node["data"]["type"],
-                        target_node["id"],
-                        target_node["data"].get("config", {}),
-                        target_input,
-                    )
+                        source_output = outputs.get(source_id, {})
+                        target_input = source_output.get(source_handle)
+                        # Fall back to the full output dict so downstream nodes always
+                        # receive something meaningful (errors, diagnostics, etc.)
+                        if target_input is None and source_handle not in source_output:
+                            target_input = source_output
+                        try:
+                            outputs[target_id] = self.execute_node(
+                                target_node["data"]["type"],
+                                target_node["id"],
+                                target_node["data"].get("config", {}),
+                                target_input,
+                            )
+                        except Exception as exc:
+                            logger.exception("[FlowExecutor] Node %s (%s) raised: %s", target_id, target_node["data"]["type"], exc)
+                            outputs[target_id] = {"error": str(exc)}
+            except Exception as exc:
+                logger.exception("[FlowExecutor] Iteration %s failed: %s", iteration, exc)
 
             if iteration <= 3:
                 logger.info(
