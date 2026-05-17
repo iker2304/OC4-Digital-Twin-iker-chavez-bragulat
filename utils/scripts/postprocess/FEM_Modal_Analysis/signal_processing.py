@@ -9,6 +9,13 @@ from omegaconf import DictConfig
 from scipy import signal as scipy_signal
 from datetime import datetime
 
+# Damping estimation via Half-Power Bandwidth
+import importlib, sys as _sys
+_damping_mod_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "backend", "app", "api"))
+if _damping_mod_path not in _sys.path:
+    _sys.path.insert(0, _damping_mod_path)
+from damping import calcular_amortiguamiento
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 if project_root not in sys.path:
     sys.path.append(project_root)
@@ -202,8 +209,17 @@ class VibrationAnalyzer:
             peak_freqs = []
             peak_powers = []
             peak_mags = []
+            sorted_peaks = np.array([], dtype=int)
         
-        # 5b. Match peaks against known modal frequencies
+        # 5b. Damping ratio via Half-Power Bandwidth for each peak
+        damping_ratios = []
+        if len(sorted_peaks) > 0:
+            try:
+                damping_ratios = calcular_amortiguamiento(freqs, magnitude, sorted_peaks)
+            except Exception:
+                pass
+
+        # 5c. Match peaks against known modal frequencies
         matched_modes = self._match_modes(peak_freqs, peak_mags)
 
         # Update history and statistics
@@ -235,6 +251,7 @@ class VibrationAnalyzer:
             'peak_powers': peak_powers,
             'n_peaks': len(peak_freqs),
             'matched_modes': matched_modes,
+            'damping_ratios': damping_ratios,
             'freq_resolution': self.freq_resolution,
             'sample_rate_hz': self.sample_rate_hz,
         }
@@ -296,6 +313,19 @@ class VibrationAnalyzer:
                       f"(detected {count} times)")
         else:
             print(f"\n✗ NO MODES IDENTIFIED")
+
+        # Damping ratios
+        if result.get('damping_ratios'):
+            print(f"\nDAMPING RATIOS (Half-Power Bandwidth):")
+            print(f"  {'fn (Hz)':<12} {'ζ':<12} {'BW (Hz)':<12} {'f1 (Hz)':<12} {'f2 (Hz)':<12}")
+            print(f"  {'-'*58}")
+            for dr in result['damping_ratios']:
+                zeta_str = f"{dr['zeta']:.6f}" if dr['zeta'] is not None else "N/A"
+                bw_str   = f"{dr['bw_hz']:.6f}" if dr['bw_hz'] is not None else "N/A"
+                f1_str   = f"{dr['f1_hz']:.4f}" if dr['f1_hz'] is not None else "N/A"
+                f2_str   = f"{dr['f2_hz']:.4f}" if dr['f2_hz'] is not None else "N/A"
+                print(f"  {dr['fn_hz']:<12.4f} {zeta_str:<12} {bw_str:<12} {f1_str:<12} {f2_str:<12}")
+        
         
         # Estadísticas
         print(f"\nSTATISTICS:")

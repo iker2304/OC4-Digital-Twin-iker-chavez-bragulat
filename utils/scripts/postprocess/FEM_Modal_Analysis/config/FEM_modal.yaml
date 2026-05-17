@@ -1,2 +1,7 @@
 config:
   keypoint_analysis: 'pilar_center'
+
+frf_correction:
+  enabled: False        # Set to True to correct FFT amplitudes using the FRF
+  zeta: 0.01            # Modal damping ratio (0.01 = 1%, typical for offshore steel)
+  modal_mass: 1.0       # Modal mass Mi (1.0 if FEM eigenvectors are mass-normalised)

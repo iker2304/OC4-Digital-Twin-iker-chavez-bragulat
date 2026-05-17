@@ -24,6 +24,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.params import Query
+from app.api.damping import calcular_amortiguamiento
 from pydantic import BaseModel
 
 logger = logging.getLogger("app.api.fem")
@@ -308,6 +309,38 @@ async def fem_mqtt_ws(
         logger.info("[FEM] MQTT-WS cleanup done topic=%s", topic)
 
 
+# ── FRF corrector (optional, loaded from detection.yaml) ──────────────────────
+
+_frf_corrector = None  # None means disabled
+
+def _load_frf_corrector():
+    """Read FEM_modal.yaml and instantiate FRFCorrector if enabled."""
+    global _frf_corrector
+    try:
+        import yaml
+        yaml_path = os.path.join(_FEM_SCRIPTS_DIR, "config", "FEM_modal.yaml")
+        with open(yaml_path, "r") as fh:
+            cfg = yaml.safe_load(fh)
+
+        frf_cfg = cfg.get("frf_correction", {})
+        if not frf_cfg.get("enabled", False):
+            logger.info("[FEM] FRF correction disabled (FEM_modal.yaml frf_correction.enabled=false).")
+            return
+
+        if _FEM_SCRIPTS_DIR not in sys.path:
+            sys.path.insert(0, _FEM_SCRIPTS_DIR)
+        from frf_correction import FRFCorrector  # type: ignore
+        _frf_corrector = FRFCorrector(
+            zeta=float(frf_cfg.get("zeta", 0.01)),
+            modal_mass=float(frf_cfg.get("modal_mass", 1.0)),
+        )
+        logger.info("[FEM] FRF correction enabled — zeta=%.4f", _frf_corrector.zeta)
+    except Exception as exc:
+        logger.warning("[FEM] Could not load FRF corrector: %s", exc)
+
+_load_frf_corrector()
+
+
 # ── Pre-calculated simulation params ──────────────────────────────────────────
 class SimParams(BaseModel):
     mode: str = "wind"       # "wind" | "wave"
@@ -408,6 +441,16 @@ _LIVE_MIN_SAMPLES   = 64
 _LIVE_COMPUTE_EVERY = 5        # Run FFT every N new MQTT samples
 _LIVE_DEFAULT_SR    = 10.0     # Hz — overridden by "fps" in MQTT payload
 
+# ── Pixel-to-metre calibration using known 3-D reference points ───────────────
+# Two keypoints whose world positions (metres, Blender scene) are known.
+# At runtime their pixel distance is measured and compared to the real distance
+# to produce a metres-per-pixel factor that is applied to the tracked keypoint.
+_CALIB_A = "pontoon_left_3"   # world: (0.218, -0.003, 0.341)
+_CALIB_B = "pontoon_right_3"  # world: (-0.216, -0.003, 0.341)
+_CALIB_REAL_DIST_M: float = math.sqrt(
+    (0.218 - (-0.216)) ** 2 + (-0.003 - (-0.003)) ** 2 + (0.341 - 0.341) ** 2
+)  # ≈ 0.434 m
+
 
 @router.websocket("/modal-live-ws")
 async def fem_modal_live_ws(
@@ -444,6 +487,20 @@ async def fem_modal_live_ws(
         data_buffer: deque = deque(maxlen=_LIVE_BUFFER_SIZE)
         sample_count   = 0
         sample_rate    = _LIVE_DEFAULT_SR
+        baseline_y_px: float | None = None   # first detected y-pixel → displacement origin
+        meters_per_pixel: float | None = None
+
+        def _px(pts: dict, name: str):
+            """Return (x, y) pixel coords for keypoint *name*, or (None, None)."""
+            kp = pts.get(name)
+            if isinstance(kp, dict):
+                x = kp.get("x")
+                y = kp.get("y")
+                return (float(x) if x is not None else None,
+                        float(y) if y is not None else None)
+            if isinstance(kp, (int, float)):
+                return None, float(kp)
+            return None, None
 
         while True:
             new_samples = 0
@@ -463,27 +520,38 @@ async def fem_modal_live_ws(
                     # pose_detection.py publishes:
                     #   { "points": { "pilar_center": {"x":..,"y":..,"confidence":..}, ... }, ... }
                     value = None
+                    pts = payload.get("points", {}) if isinstance(payload, dict) else {}
 
-                    # 1. Try direct top-level key (legacy / custom publishers)
-                    raw = payload.get(keypoint)
-                    if isinstance(raw, (int, float)):
-                        value = float(raw)
+                    # ── Pixel-to-metre calibration ─────────────────────────
+                    # Compute metres_per_pixel from the two reference keypoints
+                    # whenever both are visible in this frame.
+                    ax, _ = _px(pts, _CALIB_A)
+                    bx, _ = _px(pts, _CALIB_B)
+                    ay_v = _px(pts, _CALIB_A)[1]
+                    by_v = _px(pts, _CALIB_B)[1]
+                    if ax is not None and bx is not None and ay_v is not None and by_v is not None:
+                        pix_dist = math.sqrt((ax - bx) ** 2 + (ay_v - by_v) ** 2)
+                        if pix_dist > 1.0:
+                            meters_per_pixel = _CALIB_REAL_DIST_M / pix_dist
 
-                    # 2. Try nested in "points" dict (standard pose_detection.py output)
+                    # ── Extract tracked keypoint displacement in metres ─────
+                    # 1. Try nested "points" dict (standard pose_detection.py output)
+                    kp_x, kp_y = _px(pts, keypoint)
+                    if kp_y is not None and meters_per_pixel is not None:
+                        if baseline_y_px is None:
+                            baseline_y_px = kp_y
+                        # Vertical displacement in metres (positive = downward in image)
+                        value = (kp_y - baseline_y_px) * meters_per_pixel
+
+                    # 2. Direct top-level numeric key (legacy publishers) — kept as pixels fallback
                     if value is None:
-                        pts = payload.get("points", {})
-                        kp = pts.get(keypoint) if isinstance(pts, dict) else None
-                        if isinstance(kp, dict):
-                            # Use y-coordinate (vertical image axis ≈ surge/heave)
-                            v = kp.get("y", kp.get("x"))
-                            if v is not None:
-                                value = float(v)
-                        elif isinstance(kp, (int, float)):
-                            value = float(kp)
+                        raw = payload.get(keypoint) if isinstance(payload, dict) else None
+                        if isinstance(raw, (int, float)):
+                            value = float(raw)
 
                     # 3. Fallback: first element of "pose" array
                     if value is None:
-                        pose = payload.get("pose")
+                        pose = payload.get("pose") if isinstance(payload, dict) else None
                         if pose and len(pose) > 0:
                             value = float(pose[0])
 
@@ -512,6 +580,7 @@ async def fem_modal_live_ws(
 
                 # ── Match peaks against FEM modal frequencies ──────────────
                 matched: List[Dict] = []
+                matched_bin_indices: List[int] = []   # spectrum bin of each matched peak
                 for mode_id, modal_freq in _FEM_MODAL_FREQUENCIES.items():
                     if modal_freq > nyquist:
                         continue
@@ -526,6 +595,28 @@ async def fem_modal_live_ws(
                         "freq_hz":   float(modal_freq),
                         "amplitude": float(mag[best]),
                     })
+                    matched_bin_indices.append(int(best))
+
+                # Apply FRF correction if enabled in detection.yaml
+                if _frf_corrector is not None and matched:
+                    matched = _frf_corrector.correct(matched)
+
+                # ── Damping ratio via Half-Power Bandwidth ─────────────────
+                damping_results = []
+                if matched_bin_indices:
+                    try:
+                        damping_results = calcular_amortiguamiento(
+                            freqs, mag, np.array(matched_bin_indices)
+                        )
+                    except Exception as dmp_exc:
+                        logger.warning("[FEM] Damping estimation failed: %s", dmp_exc)
+
+                # Attach ζ to each matched mode
+                for m, dr in zip(matched, damping_results):
+                    m["zeta"]  = dr.get("zeta")
+                    m["f1_hz"] = dr.get("f1_hz")
+                    m["f2_hz"] = dr.get("f2_hz")
+                    m["bw_hz"] = dr.get("bw_hz")
 
                 # Normalise amplitudes to [0, 1]
                 max_amp = max((m["amplitude"] for m in matched), default=0.0) or 1.0
@@ -533,12 +624,14 @@ async def fem_modal_live_ws(
                     m["normalized_amplitude"] = m["amplitude"] / max_amp
 
                 fft_result_dict = {
-                    "type":          "modal_update",
-                    "matched_modes": matched,
-                    "fps":           sample_rate,
-                    "nyquist_hz":    nyquist,
-                    "n_samples":     len(data_buffer),
-                    "timestamp":     datetime.now().isoformat(),
+                    "type":              "modal_update",
+                    "matched_modes":     matched,
+                    "fps":               sample_rate,
+                    "nyquist_hz":        nyquist,
+                    "n_samples":         len(data_buffer),
+                    "timestamp":         datetime.now().isoformat(),
+                    "meters_per_pixel":  meters_per_pixel,
+                    "calib_dist_m":      _CALIB_REAL_DIST_M if meters_per_pixel is not None else None,
                 }
 
                 # Attempt full mesh reconstruction; fall back to lightweight result

@@ -39,3 +39,8 @@ pnp:
 orientation:
   enabled: True
   units: "m"
+
+kalman:
+  enabled: True         # Set to False to disable Kalman smoothing on keypoints
+  process_noise: 0.03   # Q how much the keypoint can move between frames (lower = smoother)
+  measurement_noise: 1.0 # R expected YOLO pixel noise variance (higher = smoother)

@@ -579,8 +579,13 @@ def main(cfg: DictConfig) -> None:
     frame_interval_s = 1.0 / source_fps
     print(f"Source FPS: {source_fps:.2f} (Frame interval: {frame_interval_s*1000:.1f}ms)")
 
-    # Initialize Kalman Smoother for keypoints
-    kp_smoother = KeypointSmoother()
+    # Initialize Kalman Smoother for keypoints (params from detection.yaml kalman section)
+    _k = cfg.kalman if hasattr(cfg, "kalman") else None
+    kp_smoother = KeypointSmoother(
+        enabled=bool(_k.enabled) if _k is not None else True,
+        process_noise=float(_k.process_noise) if _k is not None else 0.03,
+        measurement_noise=float(_k.measurement_noise) if _k is not None else 1.0,
+    )
 
     frame_indx = 0
     video_writer = None
