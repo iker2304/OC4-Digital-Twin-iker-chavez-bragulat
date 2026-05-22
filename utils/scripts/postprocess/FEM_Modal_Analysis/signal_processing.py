@@ -379,7 +379,7 @@ def main(config: DictConfig):
         # 2. Try nested in "points" dict (standard pose_detection.py output)
         if value is None:
             pts = data.get("points", {})
-            kp_key = keypoint_key or "pilar_center"
+            kp_key = keypoint_key or "Hub" #"pilar_center"
             kp = pts.get(kp_key) if isinstance(pts, dict) else None
             if isinstance(kp, dict):
                 v = kp.get("y", kp.get("x"))

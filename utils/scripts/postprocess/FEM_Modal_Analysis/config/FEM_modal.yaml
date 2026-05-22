@@ -1,5 +1,5 @@
 config:
-  keypoint_analysis: 'pilar_center'
+  keypoint_analysis: 'Hub'
 
 frf_correction:
   enabled: False        # Set to True to correct FFT amplitudes using the FRF
