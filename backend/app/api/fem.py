@@ -4,9 +4,12 @@ REST   GET  /api/fem/loads                – current load state
 REST   POST /api/fem/loads                – push a load case manually
 REST   POST /api/fem/live-scripts/start   – launch signal_processing.py subprocess
 REST   POST /api/fem/live-scripts/stop    – stop the subprocess
+REST   GET  /api/fem/modal-shapes         – serve OC4-modal_res.json (Φ_FEM autovectors)
+REST   GET  /api/fem/modal-mesh           – serve OC4-modal_mesh.json (node coordinates)
 WS          /api/fem/ws                   – live loads pushed by flow_executor
 WS          /api/fem/mqtt-ws              – bridge an MQTT topic → FEM loads
 WS          /api/fem/modal-live-ws        – real-time FFT modal analysis from oc4/pose
+WS          /api/fem/modal-filtered-ws    – bandpass IFFT modal coords q_i(t) + full spectrum
 """
 import asyncio
 from datetime import datetime
@@ -21,6 +24,16 @@ import sys
 import threading
 import uuid
 from typing import Any, Dict, List
+
+# SciPy FFT for the bandpass-IFFT pipeline (OMA Modal Explorer)
+try:
+    from scipy.fft import rfft, irfft, rfftfreq
+    _SCIPY_AVAILABLE = True
+except ImportError:
+    _SCIPY_AVAILABLE = False
+    logging.getLogger("app.api.fem").warning(
+        "[FEM] scipy not installed — modal-filtered-ws bandpass will use numpy fallback."
+    )
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.params import Query
@@ -672,3 +685,326 @@ async def fem_modal_live_ws(
         except Exception:
             pass
         logger.info("[FEM] modal-live-ws cleanup done node=%s", node_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REST: Serve FEM modal JSON files to the frontend
+# ─────────────────────────────────────────────────────────────────────────────
+
+_FEM_UTILS_DIR = os.path.join(_FEM_SCRIPTS_DIR, "utils")
+
+
+@router.get("/modal-shapes")
+async def get_modal_shapes():
+    """Serve OC4-modal_res.json — φ_FEM autovectors (mode shapes) for the frontend.
+
+    The frontend loads this once at startup to populate Φ_FEM for the
+    modal superposition equation:
+        x_mesh(t) = Σ Φ_FEM,i · q_i(t)
+    """
+    from fastapi.responses import FileResponse
+    path = os.path.join(_FEM_UTILS_DIR, "OC4-modal_res.json")
+    if not os.path.isfile(path):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"OC4-modal_res.json not found at {path}")
+    return FileResponse(path, media_type="application/json")
+
+
+@router.get("/modal-mesh")
+async def get_modal_mesh():
+    """Serve OC4-modal_mesh.json — FEM node coordinates for the frontend mesh renderer."""
+    from fastapi.responses import FileResponse
+    path = os.path.join(_FEM_UTILS_DIR, "OC4-modal_mesh.json")
+    if not os.path.isfile(path):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"OC4-modal_mesh.json not found at {path}")
+    return FileResponse(path, media_type="application/json")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WS: /api/fem/modal-filtered-ws
+#
+# Operational Modal Analysis (OMA) — Bandpass IFFT pipeline
+# ----------------------------------------------------------
+# 1. Receives real-time scalar displacement samples from MQTT (oc4/pose).
+# 2. Accumulates them in a circular buffer of N samples.
+# 3. Every FILTER_COMPUTE_EVERY new samples:
+#    a. FFT the buffer.
+#    b. For each FEM resonance band [f_i - δf, f_i + δf]:
+#         - Apply a rectangular bandpass mask to the FFT spectrum.
+#         - IFFT the masked spectrum → band-isolated signal in time.
+#         - Take the LAST sample as q_i(t_current) — the modal coordinate.
+#    c. Send a JSON payload to the frontend:
+#         { q_modal: {mode_id: q_i}, fft_spectrum: {freqs, magnitudes} }
+#
+# The frontend uses q_modal to animate the deformed mesh via:
+#   x_mesh(t) = Σ Φ_FEM,i · q_i(t)_IFFT        (Modo 1 — Live Mirror)
+#   x_mesh(t) = A · Φ_FEM,n · sin(2π f_n t)     (Modo 2 — Modal Explorer)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Bandpass half-width in Hz — controls how much signal is extracted per mode
+_FILTER_BW_HZ: float = 0.5
+
+# Buffer and compute parameters
+_FILTER_BUFFER_SIZE: int = 512       # Circular buffer length (samples)
+_FILTER_FFT_SIZE: int = 512          # FFT size (zero-padded if buffer is smaller)
+_FILTER_MIN_SAMPLES: int = 64        # Minimum samples before first FFT
+_FILTER_COMPUTE_EVERY: int = 5       # Compute FFT every N new samples
+
+# Pixel-to-metre calibration constants (same as modal-live-ws above)
+_FILTER_CALIB_A = "pontoon_left_3"
+_FILTER_CALIB_B = "pontoon_right_3"
+_FILTER_CALIB_REAL_DIST_M: float = math.sqrt(
+    (0.218 - (-0.216)) ** 2 + (-0.003 - (-0.003)) ** 2 + (0.341 - 0.341) ** 2
+)  # ≈ 0.434 m
+
+
+def _bandpass_ifft_modal_coords(
+    buffer: "deque",
+    sample_rate: float,
+    modal_frequencies: Dict[int, float],
+    bw_hz: float,
+    fft_size: int,
+) -> tuple:
+    """Apply bandpass IFFT to extract modal coordinates q_i(t) from a signal buffer.
+
+    Implements the OMA time-domain reconstruction:
+        q_i(t) ≈ IFFT( FFT(x) · H_i(f) )[-1]
+    where H_i(f) is a rectangular bandpass mask centred at f_i with half-width bw_hz.
+
+    Parameters
+    ----------
+    buffer:
+        Circular deque of scalar displacement samples (metres).
+    sample_rate:
+        Sampling frequency in Hz (camera FPS).
+    modal_frequencies:
+        Dict {mode_id: f_i} — FEM resonance frequencies.
+    bw_hz:
+        Half-bandwidth of the rectangular bandpass filter (Hz).
+    fft_size:
+        FFT / IFFT length (zero-padding applied if needed).
+
+    Returns
+    -------
+    q_modal:
+        Dict {mode_id: q_i(t_current)} — scalar modal coordinate for each mode.
+    freqs:
+        1-D float array of frequency bins (Hz).
+    magnitudes:
+        1-D float array of FFT amplitude at each bin.
+    """
+    import numpy as np
+
+    n_use = min(len(buffer), fft_size)
+    samples = np.array(list(buffer)[-n_use:], dtype=float)
+
+    # ── OMA step 1: Windowed FFT ────────────────────────────────────────────
+    # Hanning window reduces spectral leakage between resonance peaks.
+    window = np.hanning(n_use)
+    if _SCIPY_AVAILABLE:
+        fft_full = rfft(samples * window, n=fft_size)
+        freqs = rfftfreq(fft_size, d=1.0 / sample_rate)
+    else:
+        import numpy.fft as npfft
+        fft_full = npfft.rfft(samples * window, n=fft_size)
+        freqs = npfft.rfftfreq(fft_size, d=1.0 / sample_rate)
+
+    magnitudes = np.abs(fft_full)
+    nyquist = sample_rate / 2.0
+
+    q_modal: Dict[int, float] = {}
+
+    for mode_id, f_i in modal_frequencies.items():
+        # Skip modes above Nyquist (they cannot be resolved at this sample rate)
+        if f_i > nyquist:
+            continue
+
+        # ── OMA step 2: Rectangular bandpass mask centred at f_i ─────────
+        mask = np.zeros(len(fft_full), dtype=complex)
+        band_idx = np.where(np.abs(freqs - f_i) <= bw_hz)[0]
+
+        if len(band_idx) == 0:
+            # Frequency resolution too coarse — pick the nearest bin
+            nearest = int(np.argmin(np.abs(freqs - f_i)))
+            band_idx = np.array([nearest])
+
+        mask[band_idx] = fft_full[band_idx]
+
+        # ── OMA step 3: IFFT of the masked spectrum → band-isolated signal ─
+        if _SCIPY_AVAILABLE:
+            q_time = irfft(mask, n=fft_size)
+        else:
+            import numpy.fft as npfft
+            q_time = npfft.irfft(mask, n=fft_size)
+
+        # The LAST sample of the reconstructed time signal is q_i(t_current).
+        # We normalise by the window energy to recover physical units.
+        window_energy = float(np.sum(window)) / n_use
+        q_modal[mode_id] = float(q_time[-1]) / max(window_energy, 1e-12)
+
+    return q_modal, freqs.tolist(), magnitudes.tolist()
+
+
+@router.websocket("/modal-filtered-ws")
+async def fem_modal_filtered_ws(
+    websocket: WebSocket,
+    broker: str = Query(default=None),
+    port: int = Query(default=1883),
+    topic: str = Query(default="oc4/pose"),
+    keypoint: str = Query(default="pilar_center"),
+):
+    """Subscribe to MQTT pose data, apply bandpass IFFT, and stream modal coords q_i(t).
+
+    Payload sent to client every compute cycle:
+    {
+        "type": "modal_filtered",
+        "q_modal": {"1": 0.0023, "2": 0.0001, ...},   // modal coords (metres)
+        "fft_spectrum": {
+            "freqs": [...],       // frequency bins (Hz)
+            "magnitudes": [...]   // FFT amplitude
+        },
+        "sample_rate_hz": 10.0,
+        "n_samples": 256,
+        "timestamp": "2025-..."
+    }
+    """
+    if broker is None:
+        broker = os.getenv("MQTT_BROKER", "localhost")
+    await websocket.accept()
+    node_id = f"fem_filtered_{uuid.uuid4().hex[:8]}"
+    logger.info("[FEM] modal-filtered-ws connected node=%s topic=%s", node_id, topic)
+
+    msg_queue: queue.Queue = queue.Queue()
+
+    def on_message(entry: Dict) -> None:
+        msg_queue.put(entry)
+
+    try:
+        import numpy as np
+
+        from app.mqtt import manager as mqtt_mgr
+        mqtt_mgr.subscribe_node(node_id, broker, port, topic, qos=0)
+        conn = mqtt_mgr.get_connection(broker, port)
+        conn.add_listener(node_id, on_message)
+
+        await websocket.send_text(json.dumps({
+            "type": "connected", "topic": topic, "broker": broker, "port": port,
+        }))
+
+        # ── Per-connection state ───────────────────────────────────────────
+        data_buffer: deque = deque(maxlen=_FILTER_BUFFER_SIZE)
+        sample_count: int = 0
+        sample_rate: float = _LIVE_DEFAULT_SR
+        baseline_y_px: float | None = None
+        meters_per_pixel: float | None = None
+
+        def _px(pts: dict, name: str):
+            kp = pts.get(name)
+            if isinstance(kp, dict):
+                x = kp.get("x")
+                y = kp.get("y")
+                return (float(x) if x is not None else None,
+                        float(y) if y is not None else None)
+            if isinstance(kp, (int, float)):
+                return None, float(kp)
+            return None, None
+
+        while True:
+            new_samples = 0
+
+            # ── Drain MQTT queue ───────────────────────────────────────────
+            while True:
+                try:
+                    entry = msg_queue.get_nowait()
+                    payload = entry.get("payload", {})
+
+                    # Update sample rate from real-time camera FPS
+                    fps = payload.get("fps")
+                    if fps and float(fps) > 0:
+                        sample_rate = float(fps)
+
+                    pts = payload.get("points", {}) if isinstance(payload, dict) else {}
+
+                    # ── Pixel-to-metre calibration ─────────────────────────
+                    ax, _ = _px(pts, _FILTER_CALIB_A)
+                    bx, _ = _px(pts, _FILTER_CALIB_B)
+                    ay_v = _px(pts, _FILTER_CALIB_A)[1]
+                    by_v = _px(pts, _FILTER_CALIB_B)[1]
+                    if ax is not None and bx is not None and ay_v is not None and by_v is not None:
+                        pix_dist = math.sqrt((ax - bx) ** 2 + (ay_v - by_v) ** 2)
+                        if pix_dist > 1.0:
+                            meters_per_pixel = _FILTER_CALIB_REAL_DIST_M / pix_dist
+
+                    # ── Extract displacement in metres ─────────────────────
+                    value = None
+                    kp_x, kp_y = _px(pts, keypoint)
+                    if kp_y is not None and meters_per_pixel is not None:
+                        if baseline_y_px is None:
+                            baseline_y_px = kp_y
+                        value = (kp_y - baseline_y_px) * meters_per_pixel
+
+                    if value is None:
+                        raw = payload.get(keypoint) if isinstance(payload, dict) else None
+                        if isinstance(raw, (int, float)):
+                            value = float(raw)
+
+                    if value is not None:
+                        data_buffer.append(float(value))
+                        sample_count += 1
+                        new_samples += 1
+
+                except queue.Empty:
+                    break
+
+            # ── Bandpass IFFT every N new samples ─────────────────────────
+            if (new_samples > 0
+                    and sample_count % _FILTER_COMPUTE_EVERY == 0
+                    and len(data_buffer) >= _LIVE_MIN_SAMPLES):
+
+                q_modal, freqs, magnitudes = _bandpass_ifft_modal_coords(
+                    buffer=data_buffer,
+                    sample_rate=sample_rate,
+                    modal_frequencies=_FEM_MODAL_FREQUENCIES,
+                    bw_hz=_FILTER_BW_HZ,
+                    fft_size=_FILTER_FFT_SIZE,
+                )
+
+                payload_out = {
+                    "type": "modal_filtered",
+                    # OMA modal coordinates q_i(t) — frontend uses these for
+                    # the superposition: x_mesh(t) = Σ Φ_FEM,i · q_i(t)
+                    "q_modal": {str(k): v for k, v in q_modal.items()},
+                    "fft_spectrum": {
+                        "freqs": freqs,
+                        "magnitudes": magnitudes,
+                    },
+                    "sample_rate_hz": sample_rate,
+                    "n_samples": len(data_buffer),
+                    "timestamp": datetime.now().isoformat(),
+                }
+
+                try:
+                    await websocket.send_text(json.dumps(payload_out))
+                except Exception:
+                    break
+
+            await asyncio.sleep(0.05)
+
+    except WebSocketDisconnect:
+        logger.info("[FEM] modal-filtered-ws disconnected node=%s", node_id)
+    except Exception as exc:
+        logger.error("[FEM] modal-filtered-ws error: %s", exc, exc_info=True)
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
+        except Exception:
+            pass
+    finally:
+        try:
+            from app.mqtt import manager as mqtt_mgr
+            conn = mqtt_mgr.get_connection(broker, port)
+            conn.remove_listener(node_id, on_message)
+            mqtt_mgr.unsubscribe_node(node_id, broker, port)
+        except Exception:
+            pass
+        logger.info("[FEM] modal-filtered-ws cleanup done node=%s", node_id)
