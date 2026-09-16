@@ -72,6 +72,6 @@ utils/scripts/dataset
 verify_pnp.py
 pose_detection_kalman.pya
 expand_*
-generate_dataset*
+
 outputs/
 metodologia_*

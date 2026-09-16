@@ -14,3 +14,4 @@ python-multipart
 email-validator
 onnxruntime
 ultralytics
+scipy

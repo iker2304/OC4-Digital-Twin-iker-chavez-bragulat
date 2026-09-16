@@ -6,3 +6,4 @@ FreeSimpleGUI
 huggingface_hub 
 influxdb-client
 paho-mqtt
+scipy
