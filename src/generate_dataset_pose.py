@@ -1,3 +1,4 @@
+
 import os
 import sys
 import site
@@ -25,7 +26,8 @@ def install_requirements():
         "hydra-core": "hydra",
         "opencv-python": "cv2",
         "scikit-learn": "sklearn",
-        "pyyaml": "yaml"
+        "pyyaml": "yaml",
+        "kagglehub": "kagglehub"
     }
     try:
         with open(requirements_file, 'r') as f:
@@ -74,6 +76,90 @@ CLASS_MAPPING = {
     "Tubo_353mm": 11, "Tubo_444mm": 12, "pontoon_base": 13
 }
 
+def has_background_images(directory: Path) -> bool:
+    if not directory.exists():
+        return False
+    valid_exts = ('.png', '.jpg', '.jpeg')
+    for root, _, files in os.walk(directory):
+        for f in files:
+            if f.lower().endswith(valid_exts):
+                return True
+    return False
+
+def ensure_background_dataset(target_dir: Path, dataset_name: str = "awsaf49/coco-2017-dataset"):
+    """
+    Checks if background images are present in target_dir. If empty, downloads
+    them automatically from Kaggle using kagglehub (or kaggle API/CLI fallback).
+    """
+    if has_background_images(target_dir):
+        return
+
+    print(f"\n=======================================================")
+    print(f"[BACKGROUND] No background images found in: {target_dir}")
+    print(f"[BACKGROUND] Auto-downloading '{dataset_name}' from Kaggle...")
+    print(f"=======================================================\n")
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    download_success = False
+
+    # 1. Try kagglehub
+    try:
+        import kagglehub
+    except ImportError:
+        print("[BACKGROUND] 'kagglehub' not found. Installing via pip...")
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "--user", "kagglehub"], check=True)
+            import kagglehub
+        except Exception as e:
+            print(f"[BACKGROUND] Could not install kagglehub automatically: {e}")
+            kagglehub = None
+
+    if kagglehub is not None:
+        try:
+            print(f"[BACKGROUND] Downloading {dataset_name} directly to {target_dir}...")
+            kagglehub.dataset_download(dataset_name, output_dir=str(target_dir))
+            download_success = True
+        except TypeError:
+            # Fallback for kagglehub versions without output_dir
+            try:
+                print(f"[BACKGROUND] Downloading {dataset_name} to cache...")
+                cached_path = kagglehub.dataset_download(dataset_name)
+                import shutil
+                print(f"[BACKGROUND] Copying files from {cached_path} to {target_dir}...")
+                shutil.copytree(cached_path, str(target_dir), dirs_exist_ok=True)
+                download_success = True
+            except Exception as e_cache:
+                print(f"[BACKGROUND] Cache download/copy failed: {e_cache}")
+        except Exception as e:
+            print(f"[BACKGROUND] kagglehub download error: {e}")
+
+    # 2. Fallback to kaggle CLI / API
+    if not download_success:
+        print("[BACKGROUND] Trying fallback with Kaggle API / CLI...")
+        try:
+            from kaggle.api.kaggle_api_extended import KaggleApi
+            api = KaggleApi()
+            api.authenticate()
+            api.dataset_download_files(dataset_name, path=str(target_dir), unzip=True)
+            download_success = True
+        except Exception as e_api:
+            try:
+                res = subprocess.run(
+                    ["kaggle", "datasets", "download", "-d", dataset_name, "-p", str(target_dir), "--unzip"],
+                    capture_output=True, text=True
+                )
+                if res.returncode == 0:
+                    download_success = True
+                else:
+                    print(f"[BACKGROUND] kaggle CLI failed: {res.stderr}")
+            except Exception as e_cli:
+                print(f"[BACKGROUND] Fallback failed: {e_api} / {e_cli}")
+
+    if has_background_images(target_dir):
+        print(f"[BACKGROUND] Successfully verified background images in {target_dir}!\n")
+    else:
+        print(f"[BACKGROUND] WARNING: Could not find or download background images into {target_dir}!\n")
+
 @hydra.main(config_path="config", config_name="main", version_base=None)
 def main(cfg: DictConfig) -> None:
     num_renders = cfg.blender.config.num_renders
@@ -86,6 +172,15 @@ def main(cfg: DictConfig) -> None:
     labels_path.mkdir(parents=True, exist_ok=True)
     gt_path.mkdir(parents=True, exist_ok=True)
     print(f"[POSE] Output images: {images_path}")
+
+    # Check background images and auto-download if needed
+    if cfg.randomization.background.enabled:
+        bg_rel_path = cfg.randomization.background.get("path", "data/backgrounds/COCO")
+        bg_dir = Path(bg_rel_path)
+        if not bg_dir.is_absolute():
+            bg_dir = project_root / bg_dir
+        dataset_name = cfg.randomization.background.get("dataset", "awsaf49/coco-2017-dataset")
+        ensure_background_dataset(bg_dir, dataset_name)
     scene = bpy.context.scene
     scene.render.engine = 'CYCLES'
     scene.render.resolution_x = cfg.blender.config.resolution_x

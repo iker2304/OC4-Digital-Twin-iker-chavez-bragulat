@@ -2,11 +2,39 @@ import bpy
 import random
 import math
 import os
+from pathlib import Path
 from mathutils import Vector
 
 from omegaconf import DictConfig
 
 _CACHED_TARGET_CENTER = None
+_BACKGROUND_IMAGES_CACHE = {}
+
+def get_image_files(image_dir: str) -> list:
+    abs_dir = os.path.abspath(image_dir)
+    if abs_dir in _BACKGROUND_IMAGES_CACHE and _BACKGROUND_IMAGES_CACHE[abs_dir]:
+        return _BACKGROUND_IMAGES_CACHE[abs_dir]
+
+    valid_exts = ('.png', '.jpg', '.jpeg')
+    images = []
+    if os.path.exists(abs_dir):
+        try:
+            with os.scandir(abs_dir) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.lower().endswith(valid_exts):
+                        images.append(entry.path)
+        except Exception:
+            pass
+
+        if not images:
+            for root, _, files in os.walk(abs_dir):
+                for f in files:
+                    if f.lower().endswith(valid_exts):
+                        images.append(os.path.join(root, f))
+
+    if images:
+        _BACKGROUND_IMAGES_CACHE[abs_dir] = images
+    return images
 
 def camera_dof_randomization(cfg: DictConfig, camera_obj: bpy.types.Object) -> Vector:
     """
@@ -114,18 +142,23 @@ def randomize_background(cfg: DictConfig, background_obj: bpy.types.Object) -> s
     """
     if cfg.randomization.background.enabled:
         image_dir = cfg.randomization.background.path
+        if not os.path.isabs(image_dir):
+            project_root = Path(__file__).resolve().parent.parent.parent
+            candidate = project_root / image_dir
+            if candidate.exists():
+                image_dir = str(candidate)
+
         if not os.path.exists(image_dir):
              print(f"DEBUG: Image directory does not exist: {os.path.abspath(image_dir)}")
              return None
-             
-        image_files = [f for f in os.listdir(image_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        if not image_files:
+              
+        image_paths = get_image_files(image_dir)
+        if not image_paths:
             print(f"Warning: No images found in {image_dir}")
             return None
             
-        image_name = random.choice(image_files)
-
-        image_path = os.path.abspath(os.path.join(image_dir, image_name))
+        image_path = random.choice(image_paths)
+        image_name = os.path.basename(image_path)
         
         try: 
     

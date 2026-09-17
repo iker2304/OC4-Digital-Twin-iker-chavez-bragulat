@@ -18,6 +18,7 @@ randomization:
   background:
     enabled: True
     path: 'data/backgrounds/COCO'
+    dataset: 'awsaf49/coco-2017-dataset'
   position:
     enabled: True
   platform:
