@@ -312,18 +312,41 @@ def compositor_randomization(cfg: DictConfig) -> dict:
         return settings
 
     scene = bpy.context.scene
-    scene.use_nodes = True
-    tree = scene.node_tree
+    if hasattr(scene, "use_nodes"):
+        scene.use_nodes = True
+        
+    # Blender 4.2+ compatibility where scene.node_tree is removed
+    if hasattr(scene, "node_tree"):
+        tree = scene.node_tree
+    elif hasattr(scene, "compositing_node_group"):
+        tree = scene.compositing_node_group
+        if not tree:
+            # Find existing or create new
+            comp_trees = [ng for ng in bpy.data.node_groups if ng.type == 'COMPOSITING' or type(ng).__name__ == 'CompositorNodeTree']
+            tree = comp_trees[0] if comp_trees else bpy.data.node_groups.new(name="CompositorTree", type="CompositorNodeTree")
+            scene.compositing_node_group = tree
+    else:
+        print("Warning: Could not find node_tree or compositing_node_group on Scene.")
+        return settings
+
+    if not tree:
+        return settings
     
     # Clear existing nodes
     for node in tree.nodes:
         tree.nodes.remove(node)
         
     # Create input and output
-    rl_node = tree.nodes.new('CompositorNodeRLayers')
+    try:
+        rl_node = tree.nodes.new('CompositorNodeRLayers')
+    except Exception:
+        rl_node = tree.nodes.new('NodeGroupInput')
     rl_node.location = (-400, 0)
     
-    comp_node = tree.nodes.new('CompositorNodeComposite')
+    try:
+        comp_node = tree.nodes.new('CompositorNodeComposite')
+    except Exception:
+        comp_node = tree.nodes.new('NodeGroupOutput')
     comp_node.location = (800, 0)
     
     # Keep track of the last node to link from
