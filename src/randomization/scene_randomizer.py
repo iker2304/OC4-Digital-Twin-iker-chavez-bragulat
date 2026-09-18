@@ -17,20 +17,36 @@ def get_image_files(image_dir: str) -> list:
 
     valid_exts = ('.png', '.jpg', '.jpeg')
     images = []
+    
     if os.path.exists(abs_dir):
-        try:
-            with os.scandir(abs_dir) as entries:
-                for entry in entries:
-                    if entry.is_file() and entry.name.lower().endswith(valid_exts):
-                        images.append(entry.path)
-        except Exception:
-            pass
-
+        # Check specifically for COCO 2017 folder structure
+        coco_dir = os.path.join(abs_dir, 'coco2017')
+        if os.path.exists(coco_dir):
+            for subdir in ['train2017', 'test2017', 'val2017']:
+                subdir_path = os.path.join(coco_dir, subdir)
+                if os.path.exists(subdir_path):
+                    try:
+                        for entry in os.scandir(subdir_path):
+                            if entry.is_file() and entry.name.lower().endswith(valid_exts):
+                                images.append(entry.path)
+                    except Exception:
+                        pass
+                        
+        # Fallback if no COCO structure or no images found in it
         if not images:
-            for root, _, files in os.walk(abs_dir):
-                for f in files:
-                    if f.lower().endswith(valid_exts):
-                        images.append(os.path.join(root, f))
+            try:
+                with os.scandir(abs_dir) as entries:
+                    for entry in entries:
+                        if entry.is_file() and entry.name.lower().endswith(valid_exts):
+                            images.append(entry.path)
+            except Exception:
+                pass
+
+            if not images:
+                for root, _, files in os.walk(abs_dir):
+                    for f in files:
+                        if f.lower().endswith(valid_exts):
+                            images.append(os.path.join(root, f))
 
     if images:
         _BACKGROUND_IMAGES_CACHE[abs_dir] = images
