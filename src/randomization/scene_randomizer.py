@@ -4,11 +4,11 @@ import math
 import os
 from pathlib import Path
 from mathutils import Vector
-
 from omegaconf import DictConfig
 
 _CACHED_TARGET_CENTER = None
 _BACKGROUND_IMAGES_CACHE = {}
+_BACKGROUND_IMAGE_INDEX = 0
 
 def get_image_files(image_dir: str) -> list:
     abs_dir = os.path.abspath(image_dir)
@@ -19,18 +19,46 @@ def get_image_files(image_dir: str) -> list:
     images = []
     
     if os.path.exists(abs_dir):
-        # Check specifically for COCO 2017 folder structure
-        coco_dir = os.path.join(abs_dir, 'coco2017')
-        if os.path.exists(coco_dir):
-            for subdir in ['train2017', 'test2017', 'val2017']:
-                subdir_path = os.path.join(coco_dir, subdir)
-                if os.path.exists(subdir_path):
-                    try:
-                        for entry in os.scandir(subdir_path):
-                            if entry.is_file() and entry.name.lower().endswith(valid_exts):
-                                images.append(entry.path)
-                    except Exception:
-                        pass
+        # Scan for all COCO-like folders, e.g., coco2017, coco2018
+        try:
+            coco_dirs = []
+            for entry in os.scandir(abs_dir):
+                if entry.is_dir() and entry.name.lower().startswith('coco'):
+                    coco_dirs.append(entry.name)
+            
+            if coco_dirs:
+                # Sort to ensure coco2017 is processed before coco2018
+                coco_dirs.sort()
+                
+                for coco_dir_name in coco_dirs:
+                    coco_dir_path = os.path.join(abs_dir, coco_dir_name)
+                    
+                    # Detect test, val, train directories
+                    subdirs = {}
+                    for entry in os.scandir(coco_dir_path):
+                        if entry.is_dir():
+                            name = entry.name.lower()
+                            if 'test' in name:
+                                subdirs['test'] = entry.name
+                            elif 'val' in name:
+                                subdirs['val'] = entry.name
+                            elif 'train' in name:
+                                subdirs['train'] = entry.name
+                                
+                    # Ordered sequence of subdirectories
+                    ordered_subdir_keys = ['test', 'val', 'train']
+                    for key in ordered_subdir_keys:
+                        if key in subdirs:
+                            subdir_path = os.path.join(coco_dir_path, subdirs[key])
+                            subdir_images = []
+                            for entry in os.scandir(subdir_path):
+                                if entry.is_file() and entry.name.lower().endswith(valid_exts):
+                                    subdir_images.append(entry.path)
+                            # Sort images to maintain a deterministic order
+                            subdir_images.sort()
+                            images.extend(subdir_images)
+        except Exception:
+            pass
                         
         # Fallback if no COCO structure or no images found in it
         if not images:
@@ -41,12 +69,16 @@ def get_image_files(image_dir: str) -> list:
                             images.append(entry.path)
             except Exception:
                 pass
+            images.sort()
 
             if not images:
                 for root, _, files in os.walk(abs_dir):
+                    root_images = []
                     for f in files:
                         if f.lower().endswith(valid_exts):
-                            images.append(os.path.join(root, f))
+                            root_images.append(os.path.join(root, f))
+                    root_images.sort()
+                    images.extend(root_images)
 
     if images:
         _BACKGROUND_IMAGES_CACHE[abs_dir] = images
@@ -173,7 +205,13 @@ def randomize_background(cfg: DictConfig, background_obj: bpy.types.Object) -> s
             print(f"Warning: No images found in {image_dir}")
             return None
             
-        image_path = random.choice(image_paths)
+        global _BACKGROUND_IMAGE_INDEX
+        if _BACKGROUND_IMAGE_INDEX >= len(image_paths):
+            print(f"Warning: All background images used. Looping back to start.")
+            _BACKGROUND_IMAGE_INDEX = 0
+            
+        image_path = image_paths[_BACKGROUND_IMAGE_INDEX]
+        _BACKGROUND_IMAGE_INDEX += 1
         image_name = os.path.basename(image_path)
         
         try: 

@@ -8,3 +8,4 @@ influxdb-client
 paho-mqtt
 scipy
 kagglehub
+fake-bpy-module-latest
