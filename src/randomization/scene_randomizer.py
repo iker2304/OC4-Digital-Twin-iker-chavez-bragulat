@@ -370,22 +370,64 @@ def compositor_randomization(cfg: DictConfig) -> dict:
     if not tree:
         return settings
     
-    # Clear existing nodes
+    def _get_socket(sockets, name, default_idx=0):
+        if name in sockets:
+            return sockets[name]
+        if len(sockets) > default_idx:
+            return sockets[default_idx]
+        return None
+
+    def _link_nodes(src_node, dst_node):
+        src_socket = _get_socket(src_node.outputs, 'Image')
+        dst_socket = _get_socket(dst_node.inputs, 'Image')
+        if src_socket and dst_socket:
+            tree.links.new(src_socket, dst_socket)
+
+    # Reuse existing Render Layers and Composite nodes if present to avoid breaking sockets
+    rl_node = None
+    comp_node = None
+    nodes_to_remove = []
+
     for node in tree.nodes:
+        if node.type in ('R_LAYERS', 'RENDER_LAYERS') or 'RLayers' in type(node).__name__ or type(node).__name__ == 'NodeGroupInput':
+            if rl_node is None:
+                rl_node = node
+            else:
+                nodes_to_remove.append(node)
+        elif node.type == 'COMPOSITE' or 'Composite' in type(node).__name__ or type(node).__name__ == 'NodeGroupOutput':
+            if comp_node is None:
+                comp_node = node
+            else:
+                nodes_to_remove.append(node)
+        else:
+            nodes_to_remove.append(node)
+
+    for node in nodes_to_remove:
         tree.nodes.remove(node)
-        
-    # Create input and output
-    try:
-        rl_node = tree.nodes.new('CompositorNodeRLayers')
-    except Exception:
-        rl_node = tree.nodes.new('NodeGroupInput')
+
+    if hasattr(tree, "links"):
+        tree.links.clear()
+
+    # Create input and output if they don't already exist
+    if rl_node is None:
+        try:
+            rl_node = tree.nodes.new('CompositorNodeRLayers')
+        except Exception:
+            rl_node = tree.nodes.new('NodeGroupInput')
     rl_node.location = (-400, 0)
     
-    try:
-        comp_node = tree.nodes.new('CompositorNodeComposite')
-    except Exception:
-        comp_node = tree.nodes.new('NodeGroupOutput')
+    if comp_node is None:
+        try:
+            comp_node = tree.nodes.new('CompositorNodeComposite')
+        except Exception:
+            comp_node = tree.nodes.new('NodeGroupOutput')
     comp_node.location = (800, 0)
+
+    # NodeGroup compatibility for Blender 4.x/5.0
+    if len(comp_node.inputs) == 0 and hasattr(tree, "interface") and hasattr(tree.interface, "new_socket"):
+        tree.interface.new_socket(name="Image", in_out="OUTPUT", socket_type="NodeSocketColor")
+    if len(rl_node.outputs) == 0 and hasattr(tree, "interface") and hasattr(tree.interface, "new_socket"):
+        tree.interface.new_socket(name="Image", in_out="INPUT", socket_type="NodeSocketColor")
     
     # Keep track of the last node to link from
     last_node = rl_node
@@ -406,16 +448,19 @@ def compositor_randomization(cfg: DictConfig) -> dict:
                 cfg.randomization.compositor.distortion.dispersion[1]
             )
             
-            dist_node.inputs['Distortion'].default_value = dist_amount
-            dist_node.inputs['Dispersion'].default_value = disp_amount
-            dist_node.inputs['Jitter'].default_value = True
+            if 'Distortion' in dist_node.inputs:
+                dist_node.inputs['Distortion'].default_value = dist_amount
+            if 'Dispersion' in dist_node.inputs:
+                dist_node.inputs['Dispersion'].default_value = disp_amount
+            if 'Jitter' in dist_node.inputs:
+                dist_node.inputs['Jitter'].default_value = True
             
             settings['distortion'] = {
                 'amount': round(dist_amount, 4),
                 'dispersion': round(disp_amount, 4)
             }
             
-            tree.links.new(last_node.outputs['Image'], dist_node.inputs['Image'])
+            _link_nodes(last_node, dist_node)
             last_node = dist_node
             current_x += 200
 
@@ -434,19 +479,29 @@ def compositor_randomization(cfg: DictConfig) -> dict:
                 cfg.randomization.compositor.blur.size_y[1]
             )
             
-            blur_node.size_x = size_x
-            blur_node.size_y = size_y
+            # Compatible with older Blender (size_x property) and newer Blender (input sockets)
+            if hasattr(blur_node, "size_x"):
+                blur_node.size_x = size_x
+                blur_node.size_y = size_y
+            elif "Size X" in blur_node.inputs and "Size Y" in blur_node.inputs:
+                blur_node.inputs["Size X"].default_value = size_x
+                blur_node.inputs["Size Y"].default_value = size_y
+            elif "Size" in blur_node.inputs:
+                try:
+                    blur_node.inputs["Size"].default_value = (float(size_x), float(size_y))
+                except Exception:
+                    blur_node.inputs["Size"].default_value = float(size_x)
             
             settings['blur'] = {
                 'size_x': size_x,
                 'size_y': size_y
             }
             
-            tree.links.new(last_node.outputs['Image'], blur_node.inputs['Image'])
+            _link_nodes(last_node, blur_node)
             last_node = blur_node
             current_x += 200
             
-    #Exposure
+    # Exposure
     if hasattr(cfg.randomization.compositor, "burn") and cfg.randomization.compositor.burn.enabled:
         if random.random() < cfg.randomization.compositor.burn.probability:
             exp_node = tree.nodes.new('CompositorNodeExposure')
@@ -457,16 +512,17 @@ def compositor_randomization(cfg: DictConfig) -> dict:
                 cfg.randomization.compositor.burn.exposure.high
             )
             
-            exp_node.inputs['Exposure'].default_value = exposure_val
+            if 'Exposure' in exp_node.inputs:
+                exp_node.inputs['Exposure'].default_value = exposure_val
             
             settings['exposure'] = {
                 'value': round(exposure_val, 4)
             }
             
-            tree.links.new(last_node.outputs['Image'], exp_node.inputs['Image'])
+            _link_nodes(last_node, exp_node)
             last_node = exp_node
             current_x += 200
             
-    tree.links.new(last_node.outputs['Image'], comp_node.inputs['Image'])
+    _link_nodes(last_node, comp_node)
     
     return settings
