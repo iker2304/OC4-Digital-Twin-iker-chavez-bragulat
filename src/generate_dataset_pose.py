@@ -348,17 +348,17 @@ def main(cfg: DictConfig) -> None:
     if json_path:
         # Resolve absolute path
         abs_json_path = os.path.abspath(os.path.join(os.getcwd(), json_path)) if not os.path.isabs(json_path) else json_path
-            if os.path.exists(abs_json_path):
-                try:
-                    with open(abs_json_path, 'r') as f:
-                        data = json.load(f)
-                        if "keypoints" in data:
-                            json_items = data["keypoints"]
-                            # Use the names from the JSON file in the order they appear
-                            KEYPOINT_ORDER = [item["name"] for item in json_items if "name" in item]
-                            print(f"[POSE] Loaded {len(KEYPOINT_ORDER)} keypoint names from source JSON: {json_path}")
-                except Exception as e:
-                    print(f"[POSE] Error reading keypoint names from JSON: {e}")
+        if os.path.exists(abs_json_path):
+            try:
+                with open(abs_json_path, 'r') as f:
+                    data = json.load(f)
+                    if "keypoints" in data:
+                        json_items = data["keypoints"]
+                        # Use the names from the JSON file in the order they appear
+                        KEYPOINT_ORDER = [item["name"] for item in json_items if "name" in item]
+                        print(f"[POSE] Loaded {len(KEYPOINT_ORDER)} keypoint names from source JSON: {json_path}")
+            except Exception as e:
+                print(f"[POSE] Error reading keypoint names from JSON: {e}")
 
     # 2. Fallback to Hydra config if JSON loading failed or was not requested
     if not KEYPOINT_ORDER:
