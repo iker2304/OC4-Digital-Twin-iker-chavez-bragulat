@@ -325,12 +325,29 @@ def main(cfg: DictConfig) -> None:
     json_items = [] # Store full data for matching inside the loop
     
     # 1. Check if we should use the JSON as the source of truth for keypoint names/order
-    ann_cfg = cfg.randomization.get("annotation")
-    if ann_cfg and ann_cfg.get("method") == "json_coords":
-        json_path = ann_cfg.get("json_path")
-        if json_path:
-            # Resolve absolute path
-            abs_json_path = os.path.abspath(os.path.join(os.getcwd(), json_path)) if not os.path.isabs(json_path) else json_path
+    json_path = None
+    
+    # Priority A: cfg.blender.scene.object.keypoints_path
+    if hasattr(cfg, 'blender') and hasattr(cfg.blender, 'scene') and hasattr(cfg.blender.scene, 'object'):
+        json_path = getattr(cfg.blender.scene.object, 'keypoints_path', None)
+        
+    # Priority B: cfg.annotation.keypoints_json or cfg.annotation.pose.keypoints_json
+    if not json_path and hasattr(cfg, 'annotation') and cfg.annotation:
+        json_path = getattr(cfg.annotation, 'keypoints_json', None)
+        if not json_path and hasattr(cfg.annotation, 'pose'):
+            json_path = getattr(cfg.annotation.pose, 'keypoints_json', None)
+
+    # Priority C: cfg.randomization.annotation.json_path
+    if not json_path:
+        ann_cfg = cfg.randomization.get("annotation") if hasattr(cfg, 'randomization') else None
+        if ann_cfg and ann_cfg.get("method") == "json_coords":
+            json_path = ann_cfg.get("json_path")
+        elif ann_cfg:
+            json_path = ann_cfg.get("json_path")
+
+    if json_path:
+        # Resolve absolute path
+        abs_json_path = os.path.abspath(os.path.join(os.getcwd(), json_path)) if not os.path.isabs(json_path) else json_path
             if os.path.exists(abs_json_path):
                 try:
                     with open(abs_json_path, 'r') as f:
