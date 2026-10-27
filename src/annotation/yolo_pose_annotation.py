@@ -22,19 +22,29 @@ def create_yolo_pose_annotation(scene, camera, output_path, annotated_objects, k
     
     # 1. Load Classes and Keypoint Config
     classes_cfg = []
-    if cfg and hasattr(cfg.pose, "classes"):
-        classes_cfg = cfg.pose.classes
+    if cfg and hasattr(cfg, "pose") and hasattr(cfg.pose, "classes"):
+        classes_cfg = [dict(c) for c in cfg.pose.classes]
+    elif cfg and hasattr(cfg, "annotation") and hasattr(cfg.annotation, "pose") and hasattr(cfg.annotation.pose, "classes"):
+        classes_cfg = [dict(c) for c in cfg.annotation.pose.classes]
     
     if not classes_cfg:
-        # Fallback to legacy single-class mode if no classes defined in config
         classes_cfg = [{
-            "name": "Turbine",
+            "name": "WindTurbine",
             "id": 0,
-            "keypoints": keypoint_order or []
+            "keypoints": list(keypoint_order) if keypoint_order else []
         }]
+    elif keypoint_order:
+        # Ensure all keypoints in keypoint_order are covered in classes_cfg
+        known_kpts = set()
+        for c in classes_cfg:
+            c["keypoints"] = list(c.get("keypoints", []))
+            known_kpts.update(c["keypoints"])
+        missing = [k for k in keypoint_order if k not in known_kpts]
+        if missing:
+            classes_cfg[0]["keypoints"].extend(missing)
 
     # Find global max keypoints for padding
-    max_kpts = max([len(c["keypoints"]) for c in classes_cfg])
+    max_kpts = max([len(c["keypoints"]) for c in classes_cfg]) if classes_cfg else 0
     class_map = {c["name"]: c for c in classes_cfg}
     
     # Map keypoints to their respective classes
@@ -68,6 +78,9 @@ def create_yolo_pose_annotation(scene, camera, output_path, annotated_objects, k
         # Keypoints are mapped first to prevent them from being mistaken as root objects.
         if clean_class_name in kp_to_class:
             target_class = kp_to_class[clean_class_name]
+            is_root = False
+        elif keypoint_order and clean_class_name in keypoint_order:
+            target_class = classes_cfg[0]["name"]
             is_root = False
         elif clean_class_name in class_map:
             target_class = clean_class_name

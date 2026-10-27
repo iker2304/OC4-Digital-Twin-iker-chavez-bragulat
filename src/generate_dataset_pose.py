@@ -422,6 +422,51 @@ def main(cfg: DictConfig) -> None:
     all_meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
     print(f"[POSE] Cached {len(all_meshes)} mesh objects.")
 
+    # Instantiate keypoint empties from JSON so they evaluate exact 3D coordinates during animation/camera
+    keypoint_empties = {}
+    if json_items:
+        import mathutils
+        for kp in json_items:
+            kp_name = kp.get("name")
+            obj_name = kp.get("object_name")
+            if not kp_name or not obj_name:
+                continue
+            mesh_obj = bpy.data.objects.get(obj_name)
+            if not mesh_obj:
+                print(f"[POSE] Warning: mesh object '{obj_name}' for keypoint '{kp_name}' not found")
+                continue
+
+            vis_name = f"VIS_{kp_name}"
+            if vis_name in bpy.data.objects:
+                empty = bpy.data.objects[vis_name]
+            else:
+                empty = bpy.data.objects.new(vis_name, None)
+                empty.empty_display_type = 'SPHERE'
+                empty.empty_display_size = 0.1
+                bpy.context.scene.collection.objects.link(empty)
+
+            loc = None
+            if kp.get('type') == 'vertex' and kp.get('vertex_index', -1) >= 0:
+                idx = kp['vertex_index']
+                if idx < len(mesh_obj.data.vertices):
+                    loc = mesh_obj.matrix_world @ mesh_obj.data.vertices[idx].co
+            elif kp.get('type') in ('offset', 'relative') or 'relative_coords' in kp:
+                rel = mathutils.Vector(kp['relative_coords'])
+                loc = mesh_obj.matrix_world @ rel
+            elif 'world_coords' in kp:
+                loc = mathutils.Vector(kp['world_coords'])
+            elif kp.get('type') == 'center':
+                bbox_coords = [mesh_obj.matrix_world @ mathutils.Vector(c) for c in mesh_obj.bound_box]
+                loc = sum(bbox_coords, mathutils.Vector()) / 8.0
+
+            if loc is not None:
+                empty.parent = mesh_obj
+                empty.matrix_parent_inverse = mesh_obj.matrix_world.inverted()
+                empty.matrix_world.translation = loc
+                keypoint_empties[kp_name] = empty
+
+        print(f"[POSE] Instantiated {len(keypoint_empties)} keypoint empties in Blender scene.")
+
     while generated_count < num_renders and attempts < max_attempts:
         attempts += 1
         
@@ -462,24 +507,16 @@ def main(cfg: DictConfig) -> None:
                 return best_match
 
             if method == "json_coords":
-                # Use cached meshes
+                # 1. Add keypoint empties for accurate 2D/3D pose annotations
+                for kp_name, empty_obj in keypoint_empties.items():
+                    gt_annotated_objects.append((empty_obj, kp_name))
+
+                # 2. Add mesh components for bounding boxes
                 for obj in all_meshes:
-                    # Check against JSON object_names - an object might have MULTIPLE keypoints
-                    matched_for_this_obj = []
-                    for item in json_items:
-                        json_obj_name = item.get("object_name", "").lower()
-                        if json_obj_name == obj.name.lower():
-                            matched_for_this_obj.append(item.get("name"))
-                    
-                    # BBox match (General classes) for fallback or non-keypoint objects
                     parent_name = obj.parent.name if obj.parent else ""
                     search_str = f"{parent_name}_{obj.name}" if parent_name else obj.name
                     matched_class = find_best_match(search_str, CLASS_MAPPING.keys())
-                    
-                    if matched_for_this_obj:
-                        for kpt_name in matched_for_this_obj:
-                            gt_annotated_objects.append((obj, kpt_name))
-                    elif matched_class:
+                    if matched_class:
                         gt_annotated_objects.append((obj, matched_class))
 
             else:
