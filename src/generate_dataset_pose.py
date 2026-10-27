@@ -227,23 +227,42 @@ def main(cfg: DictConfig) -> None:
     blend_path = project_root / blend_path_cfg if blend_path_cfg else None
     target_obj_name = cfg.blender.scene.object.load
     use_blend = False
-    if blend_path and blend_path.exists():
-        try:
-            bpy.ops.wm.open_mainfile(filepath=str(blend_path))
-            print(f"[POSE] Opened BLEND: {blend_path}")
-            use_blend = True
-        except Exception:
-            print(f"[POSE] Failed to open BLEND: {blend_path}")
-            use_blend = False
+    if blend_path:
+        # Check case insensitivity (e.g. OC4.blend vs oc4.blend)
+        if not blend_path.exists():
+            for alt_name in [blend_path.name.lower(), "oc4.blend", "OC4.blend"]:
+                candidate = blend_path.parent / alt_name
+                if candidate.exists():
+                    blend_path = candidate
+                    break
+
+        if blend_path.exists():
+            try:
+                bpy.ops.wm.open_mainfile(filepath=str(blend_path))
+                print(f"[POSE] Opened BLEND: {blend_path}")
+                use_blend = True
+            except Exception as e:
+                print(f"[POSE] Failed to open BLEND: {blend_path}: {e}")
+                use_blend = False
+        else:
+            print(f"[POSE] WARNING: blend_path not found at: {blend_path}")
+
     if not use_blend:
-        camera_name = cfg.blender.scene.camera.load
-        bpy.ops.object.select_all(action='SELECT')
-        if camera_name in bpy.data.objects:
-            bpy.data.objects[camera_name].select_set(False)
-        bpy.ops.object.delete()
-        fbx_path = project_root / cfg.blender.scene.object.fbx_path
-        bpy.ops.import_scene.fbx(filepath=str(fbx_path))
-        print(f"[POSE] Imported FBX: {fbx_path}")
+        fbx_cfg = cfg.blender.scene.object.get("fbx_path", "")
+        fbx_path = project_root / fbx_cfg if fbx_cfg else None
+        if fbx_path and fbx_path.exists():
+            camera_name = cfg.blender.scene.camera.load
+            bpy.ops.object.select_all(action='SELECT')
+            if camera_name in bpy.data.objects:
+                bpy.data.objects[camera_name].select_set(False)
+            bpy.ops.object.delete()
+            bpy.ops.import_scene.fbx(filepath=str(fbx_path))
+            print(f"[POSE] Imported FBX: {fbx_path}")
+        else:
+            raise FileNotFoundError(
+                f"[POSE] Model file not found! Checked BLEND ({blend_path}) and FBX ({fbx_path}). "
+                f"Please ensure 'oc4.blend' exists in '{project_root / 'data' / 'models' / 'blender'}'."
+            )
     for obj in bpy.data.objects:
         obj.hide_viewport = False
         obj.hide_render = False

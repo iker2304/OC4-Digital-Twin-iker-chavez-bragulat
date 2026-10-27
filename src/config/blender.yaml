@@ -9,7 +9,7 @@ blender:
     object:
       Hub: 'Hub'
       load: 'assembly v5' # Object name in Blender
-      blend_path: 'data/models/blender/OC4.blend'
+      blend_path: 'data/models/blender/oc4.blend'
       fbx_path: 'data/models/fbx/OC4.fbx'
       keypoints_path: 'data/models/blender/config/keypoints.json' # Path to keypoints JSON for pose annotations
       scale: 0.004 # Scale of the object
