@@ -21,25 +21,32 @@ def extract_keypoints_coordinates(keypoints_file: str, output_file: str):
     for kp in kp_data.get("keypoints", []):
         name = kp["name"]
         obj_name = kp["object_name"]
-        v_idx = kp["vertex_index"]
+        v_idx = kp.get("vertex_index", -1)
         
         obj = bpy.data.objects.get(obj_name)
-        if obj and obj.type == 'MESH':
-            if v_idx < len(obj.data.vertices):
+        world_pos = None
+        
+        if "relative_coords" in kp and obj:
+            world_pos = obj.matrix_world @ Vector(kp["relative_coords"])
+        elif "world_coords" in kp:
+            world_pos = Vector(kp["world_coords"])
+        elif obj and obj.type == 'MESH':
+            if v_idx >= 0 and v_idx < len(obj.data.vertices):
                 v = obj.data.vertices[v_idx]
                 world_pos = obj.matrix_world @ v.co
-                
-                # Using Blender's world coordinates (X, Y, Z)
-                data_points[name] = {
-                    "x": round(float(world_pos.x), 3),
-                    "y": round(float(world_pos.y), 3),
-                    "z": round(float(world_pos.z), 3)
-                }
-                print(f"Mapped (Keypoint): {name}")
             else:
                 print(f"Warning: vertex index {v_idx} out of range for object {obj_name}")
         else:
             print(f"Warning: object {obj_name} not found or not a mesh")
+            
+        if world_pos is not None:
+            # Using Blender's world coordinates (X, Y, Z)
+            data_points[name] = {
+                "x": round(float(world_pos.x), 3),
+                "y": round(float(world_pos.y), 3),
+                "z": round(float(world_pos.z), 3)
+            }
+            print(f"Mapped (Keypoint): {name}")
 
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
