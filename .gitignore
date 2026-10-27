@@ -16,6 +16,8 @@ MRAO_calc.py
 
 # Logs y Salidas
 backend/output/csv/*.csv
+backend/data/
+mosquitto/data/
 web/build_output.txt
 web/errors.txt
 /outputs/
@@ -24,7 +26,13 @@ logs/
 *.log
 
 # Datos (Grandes archivos y datasets)
-data/
+data/*
+!data/models/
+data/models/*
+!data/models/blender/
+data/models/blender/*
+!data/models/blender/config/
+!data/models/blender/config/**
 data/synthetic_dataset/
 *.pt
 *.fbx

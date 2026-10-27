@@ -429,11 +429,27 @@ def main(cfg: DictConfig) -> None:
         for kp in json_items:
             kp_name = kp.get("name")
             obj_name = kp.get("object_name")
-            if not kp_name or not obj_name:
+            if not kp_name:
                 continue
-            mesh_obj = bpy.data.objects.get(obj_name)
+            mesh_obj = bpy.data.objects.get(obj_name) if obj_name else None
+            
+            # Fallback if specific CAD body name changed
+            if not mesh_obj and "world_coords" in kp:
+                w_pos = mathutils.Vector(kp['world_coords'])
+                best_m = None
+                best_d = float('inf')
+                for m in all_meshes:
+                    if m.bound_box:
+                        mw = m.matrix_world
+                        c = sum([mw @ mathutils.Vector(corner) for corner in m.bound_box], mathutils.Vector()) / 8.0
+                        d = (w_pos - c).length
+                        if d < best_d:
+                            best_d = d
+                            best_m = m
+                mesh_obj = best_m
+
             if not mesh_obj:
-                print(f"[POSE] Warning: mesh object '{obj_name}' for keypoint '{kp_name}' not found")
+                print(f"[POSE] Warning: mesh object for keypoint '{kp_name}' not found")
                 continue
 
             vis_name = f"VIS_{kp_name}"
@@ -511,7 +527,12 @@ def main(cfg: DictConfig) -> None:
                 for kp_name, empty_obj in keypoint_empties.items():
                     gt_annotated_objects.append((empty_obj, kp_name))
 
-                # 2. Add mesh components for bounding boxes
+                # 2. Add root turbine object so bounding box encompasses all turbine meshes
+                turbine_root = target_obj or bpy.data.objects.get("OC4-origin v2")
+                if turbine_root:
+                    gt_annotated_objects.append((turbine_root, "WindTurbine"))
+
+                # 3. Add mesh components for bounding boxes
                 for obj in all_meshes:
                     parent_name = obj.parent.name if obj.parent else ""
                     search_str = f"{parent_name}_{obj.name}" if parent_name else obj.name

@@ -1,0 +1,242 @@
+{
+    "keypoints": [
+        {
+            "name": "OC-1-F",
+            "object_name": "Body1.079",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34249,
+                0.0,
+                -0.0
+            ],
+            "world_coords": [
+                0.03351,
+                0.23053,
+                0.34042
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "OC-3-F",
+            "object_name": "Body1.077",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34602,
+                0.0,
+                0.0
+            ],
+            "world_coords": [
+                -0.03351,
+                0.23053,
+                0.34046
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "OC-2-F",
+            "object_name": "Body1.076",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34249,
+                -0.0,
+                0.0
+            ],
+            "world_coords": [
+                2e-05,
+                0.28858,
+                0.35342
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "OC-1-R",
+            "object_name": "Body1.093",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34249,
+                -0.0,
+                0.0
+            ],
+            "world_coords": [
+                -0.2164,
+                -0.08624,
+                0.34042
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "OC-2-R",
+            "object_name": "Body1.090",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34248,
+                0.0,
+                -0.0
+            ],
+            "world_coords": [
+                -0.24993,
+                -0.14427,
+                0.35342
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "OC-3-R",
+            "object_name": "Body1.091",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34602,
+                -0.0,
+                0.0
+            ],
+            "world_coords": [
+                -0.18289,
+                -0.14429,
+                0.34046
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "OC-1-L",
+            "object_name": "Body1.107",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34249,
+                0.0,
+                -0.0
+            ],
+            "world_coords": [
+                0.18289,
+                -0.14429,
+                0.34042
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "OC-2-L",
+            "object_name": "Body1.104",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34249,
+                0.0,
+                0.0
+            ],
+            "world_coords": [
+                0.24991,
+                -0.14431,
+                0.35342
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "OC-3-L",
+            "object_name": "Body1.105",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.34602,
+                0.0,
+                0.0
+            ],
+            "world_coords": [
+                0.2164,
+                -0.08624,
+                0.34046
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "CC-2-TOP",
+            "object_name": "Body1.211",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                1.4,
+                0.0,
+                0.45
+            ],
+            "world_coords": [
+                -0.0,
+                0.014,
+                1.9071
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "CC-MID",
+            "object_name": "Body1.209",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.73351,
+                -0.1564,
+                75.0
+            ],
+            "world_coords": [
+                0.00156,
+                0.00734,
+                1.1526
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "CC-CEL-F",
+            "object_name": "Body1.208",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                1.26,
+                -0.0,
+                6.0
+            ],
+            "world_coords": [
+                -0.0,
+                0.0126,
+                0.4576
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "CC-B",
+            "object_name": "Body1.208",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.73351,
+                -0.1564,
+                35.32685
+            ],
+            "world_coords": [
+                0.00156,
+                0.00734,
+                0.75087
+            ],
+            "vertex_index": -1
+        },
+        {
+            "name": "CC-T",
+            "object_name": "Body1.210",
+            "class_name": "WindTurbine",
+            "type": "offset",
+            "relative_coords": [
+                0.73351,
+                -0.1564,
+                -34.62552
+            ],
+            "world_coords": [
+                0.00156,
+                0.00734,
+                1.50734
+            ],
+            "vertex_index": -1
+        }
+    ]
+}
