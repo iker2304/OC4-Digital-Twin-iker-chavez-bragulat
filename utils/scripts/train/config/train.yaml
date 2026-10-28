@@ -2,33 +2,48 @@ paths:
   dataset: "data/synthetic_dataset/yolo_ready"
 
 config:
-  model: "data/models/CV/pose/train/weights/best.pt" 
+  model: "data/models/CV/pose/train/weights/best.pt"
   resume: False
   epochs: 100
   imgsz: 640
-  batch_size: 16 #
+  batch_size: 16
   lr0: 0.01 
+  single_cls: True # Single class: WindTurbine (class 0, no Rotor)
   dataset:
     train_ratio: 0.8
   images_extensions: ['.png', '.jpg', '.jpeg']
-  device: '0' # Use '0' for first GPU or 'cpu'
-  patience: 100
+  device: '0' # '0' for first GPU or 'cpu'
+  patience: 50
   rect: False
-  pose: 20
-  kobj: 2.0
-  kpt_shape: [11, 3] # 11 keypoints (WindTurbine max)
-  sigmas: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05] # Matching 11 kpts
+  pose: 20.0 # High keypoint loss weight to prioritize accurate landmark localization for PnP / Digital Twin
+  kobj: 2.0  # Keypoint objectness gain
+  
+  # 14 keypoints for WindTurbine: [num_keypoints, dimensions (x, y, visibility)]
+  kpt_shape: [14, 3]
+  
+  # Standard deviation for each of the 14 keypoints (OKS evaluation)
+  # Must have exactly 14 values matching kpt_shape[0]
+  sigmas: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+
+  # Class names for the dataset (ensures only WindTurbine is registered, removing Rotor)
+  names:
+    0: "WindTurbine"
 
 Augmentations:
-  degrees: 15
-  scale: 0.5
-  fliplr: 0 # Flip left to right
-  mosaic: 0
+  degrees: 15.0     # Realistic roll/pitch wave tilt simulation (±15°)
+  scale: 0.5        # Distance variation
+  fliplr: 0.0       # DO NOT FLIP (0.0): Left and right pontoons are asymmetric landmarks
+  flipud: 0.0       # 0.0: Wind turbines do not float upside down
+  mosaic: 0.0       # Disabled to preserve rigid platform geometry without edge cropping
+  translate: 0.1    # Small random translations
+  hsv_h: 0.015      # Color/lighting jitter for weather and ambient light
+  hsv_s: 0.7
+  hsv_v: 0.4
 
 Optimization_and_Hardware: 
-  workers: 8 
-  cos_lr: True
-  cache: ram 
+  workers: 4        # 4 or 8 (safe on both Windows and Linux)
+  cos_lr: True      # Cosine annealing learning rate schedule
+  cache: ram        # Fast caching in RAM ('ram', 'disk', or False)
 
 output: 
   name: "train"

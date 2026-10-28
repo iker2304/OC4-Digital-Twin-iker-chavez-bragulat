@@ -55,10 +55,9 @@ def split_dataset(source_dir, output_dir, train_ratio=0.8, val_ratio=0.1, test_r
         'val': 'val/images',
         'test': 'test/images',
         'names': {
-            0: 'WindTurbine',
-            1: 'Rotor'
+            0: 'WindTurbine'
         },
-        'kpt_shape': [11, 3] # Ajustado según annotation.yaml (WindTurbine tiene 11 kpts)
+        'kpt_shape': [14, 3] # Ajustado a 14 keypoints según annotation.yaml
     }
     
     # Nota: YOLOv8 usa kpt_shape para definir el número de keypoints y sus dimensiones [puntos, [x,y,v]]

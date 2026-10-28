@@ -30,6 +30,8 @@ def main(cfg: DictConfig) -> None:
         data_yaml['kpt_shape'] = list(cfg.config.kpt_shape)
     if hasattr(cfg.config, 'sigmas'):
         data_yaml['sigmas'] = list(cfg.config.sigmas)
+    if hasattr(cfg.config, 'names') and cfg.config.names:
+        data_yaml['names'] = dict(cfg.config.names)
     
     temp_yaml_path = os.path.join(dataset_path, 'data_temp_abs.yaml')
     with open(temp_yaml_path, 'w') as f:
@@ -44,6 +46,9 @@ def main(cfg: DictConfig) -> None:
             device= cfg.config.device if torch.cuda.is_available() else 'cpu',
             plots= True, 
             pose= cfg.config.pose,
+            kobj= getattr(cfg.config, 'kobj', 1.0),
+            lr0= getattr(cfg.config, 'lr0', 0.01),
+            single_cls= getattr(cfg.config, 'single_cls', False),
             workers= cfg.Optimization_and_Hardware.workers, 
             cos_lr= cfg.Optimization_and_Hardware.cos_lr,
             cache= cfg.Optimization_and_Hardware.cache,

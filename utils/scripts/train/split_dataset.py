@@ -86,9 +86,12 @@ def split_dataset(cfg: DictConfig) -> None:
         try:
             with open(annotation_yaml_path, 'r') as f:
                 ann_data = yaml.safe_load(f)
-                # Check for possible structures based on recent edits
                 kpts_list = []
-                if 'pose' in ann_data and 'keypoints' in ann_data['pose']:
+                if 'pose' in ann_data and 'classes' in ann_data['pose']:
+                    wt = next((c for c in ann_data['pose']['classes'] if c.get('name') == 'WindTurbine'), None)
+                    if wt and 'keypoints' in wt:
+                        kpts_list = wt['keypoints']
+                elif 'pose' in ann_data and 'keypoints' in ann_data['pose']:
                      kpts_list = ann_data['pose']['keypoints']
                 elif 'annotation' in ann_data and 'pose' in ann_data['annotation'] and 'keypoints' in ann_data['annotation']['pose']:
                      kpts_list = ann_data['annotation']['pose']['keypoints']
