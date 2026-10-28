@@ -46,7 +46,7 @@ Augmentations:
 Optimization_and_Hardware: 
   workers: 4        # 4 or 8 (safe on both Windows and Linux)
   cos_lr: True      # Cosine annealing learning rate schedule
-  cache: ram        # Fast caching in RAM ('ram', 'disk', or False)
+  cache: False      # False: Streams from disk per batch (evita desbordamiento de RAM con datasets grandes)
 
 output: 
   name: "train"
