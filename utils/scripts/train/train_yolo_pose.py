@@ -5,6 +5,7 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from omegaconf import DictConfig
 import yaml 
+from train_monitor_web import start_monitor_server, attach_yolo_callbacks
 
 @hydra.main(config_path="config", config_name="train", version_base=None)
 def main(cfg: DictConfig) -> None:
@@ -16,6 +17,19 @@ def main(cfg: DictConfig) -> None:
         model_path = os.path.join(original_cwd, model_path)
         
     model = YOLO(model_path)
+
+    # Start local web dashboard monitor & attach live YOLO callbacks
+    enable_monitor = getattr(cfg.config, "monitor", True)
+    monitor_port = int(getattr(cfg.config, "monitor_port", 8765))
+    open_browser = bool(getattr(cfg.config, "monitor_open_browser", True))
+    if enable_monitor:
+        monitor_state, _, _ = start_monitor_server(
+            project_root=original_cwd,
+            port=monitor_port,
+            open_browser=open_browser,
+            daemon=True,
+        )
+        attach_yolo_callbacks(model, monitor_state)
         
     dataset_path = os.path.join(original_cwd, cfg.paths.dataset)
     original_yaml_path = os.path.join(dataset_path, 'data.yaml')

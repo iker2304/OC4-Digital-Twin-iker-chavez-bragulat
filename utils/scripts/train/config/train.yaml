@@ -17,6 +17,9 @@ config:
   rect: False
   pose: 20.0 # High keypoint loss weight to prioritize accurate landmark localization for PnP / Digital Twin
   kobj: 2.0  # Keypoint objectness gain
+  monitor: True              # Launch local web dashboard during training
+  monitor_port: 8765         # Local port for web monitor (http://127.0.0.1:8765)
+  monitor_open_browser: True # Automatically open browser tab when training starts
   
   # 14 keypoints for WindTurbine: [num_keypoints, dimensions (x, y, visibility)]
   kpt_shape: [14, 3]
