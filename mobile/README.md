@@ -35,9 +35,12 @@ npm install             # dependencias + runtime de ORT en public/ort (postinsta
 npm run dev             # http://localhost:5273
 ```
 
-Un clon de esta rama arranca **con eso y nada más**: el gemelo 3D (`OC4.glb`) y
-el modelo por defecto (`yolo-pose-n-640-int8.onnx`) sí están versionados. Los
-demás modelos y el `.fbx` se traen con `npm run sync:models`.
+Un clon de esta rama arranca **con eso y nada más**: el gemelo 3D (`OC4.glb`),
+el modelo que carga sola al entrar (`yolo-pose-n-200.onnx`, el **nano 200 ft4
+en fp32**, 11,2 MB) y dos modelos más para comparar en `/bench`
+(`yolo-pose-s-coco-640` fp32, el mejor de la colección, y
+`yolo-pose-n-640-int8`, la variante rápida). Los demás modelos y el `.fbx` se
+traen con `npm run sync:models`.
 
 Producción (SPA + API opcional en un único proceso):
 
@@ -45,8 +48,12 @@ Producción (SPA + API opcional en un único proceso):
 npm start               # build + node server/index.mjs --serve-dist
 ```
 
-Para Docker, VPS, subpath en nginx y qué se decide en el build, ver
-**[DEPLOY.md](DEPLOY.md)**.
+## Documentación
+
+- **[PIPELINE.md](PIPELINE.md)** — cómo se pasa del `.onnx` a un gemelo 3D
+  colocado sobre la cámara: PnP, Kalman, la matemática y los umbrales.
+- **[DEPLOY.md](DEPLOY.md)** — local, Docker, VPS con nginx en subpath, y qué
+  assets no están en el repo.
 
 ## Probar en el móvil (y por qué a veces "no hay cámara")
 
@@ -181,7 +188,7 @@ donde la cámara funciona en iPhone sin tocar certificados.
 | --- | --- | --- |
 | App (JS+CSS) | ~1.7 MB (300 KB gzip) | túnel |
 | Runtime ONNX (`ort-wasm…jsep.wasm`) | 28 MB → **5.2 MB** | **CDN**, vía `VITE_ORT_ASSET_BASE=cdn` |
-| Modelo `best.onnx` | 38 MB | túnel, caché 1 día + ETag |
+| Modelo por defecto (`yolo-pose-n-200.onnx`) | 11.2 MB | túnel, caché 1 día + ETag |
 | Gemelo `OC4.glb` | 9.4 MB | túnel, caché 1 día + ETag |
 
 El `.wasm` **no** se puede comprimir (`mime-db` marca `application/wasm` como no
@@ -225,9 +232,11 @@ Solo hay que exponer **un** puerto: no hay CORS, no hay mixed content y no hay
 ## Assets pesados (no versionados)
 
 `public/models/*` y `public/ort/` están mayormente en `.gitignore` porque
-duplicarían cientos de MB en el repo. **Sí** se versionan `OC4.glb` (el gemelo) y
-`yolo-pose-n-640-int8.onnx` (el modelo por defecto), para que un clon funcione
-tal cual. El resto se materializa con:
+duplicarían cientos de MB en el repo. **Sí** se versionan `OC4.glb` (9,4 MB), el
+modelo por defecto `yolo-pose-n-200.onnx` (11,2 MB, fp32),
+`yolo-pose-s-coco-640.onnx` (39,3 MB, fp32; el de mejor rotor) y
+`yolo-pose-n-640-int8.onnx` (3,3 MB, la variante rápida). El resto se materializa
+con:
 
 ```bash
 npm run sync:models   # corre automáticamente antes de dev y build
@@ -240,14 +249,17 @@ escena 3D **no** se rompe: dibuja una plataforma procedural y lo avisa.
 
 ## Modelo ONNX
 
-**El modelo incluido se carga solo al arrancar**: `best.onnx`
-(YOLO26s-pose, 11 keypoints, clases `WindTurbine` / `Rotor`) más su sidecar
-`best.labels.txt`. No hay que subir nada. Para inspeccionarlo o cambiar de modelo:
+**El modelo incluido se carga solo al arrancar**: `public/models/yolo-pose-n-200.onnx`
+(nano 200 fine-tuned hasta `nano200_coco_ft4`, **fp32**, 11 keypoints, clases
+`WindTurbine` / `Rotor`) más su sidecar `yolo-pose-n-200.labels.txt`. No hay que
+subir nada. Cuál se carga se decide en el **build**
+(`VITE_DEFAULT_MODEL_URL`, ver [DEPLOY.md](DEPLOY.md)); en dev lo puedes apuntar a
+otro sitio desde `.env.local`. Para inspeccionarlo o cambiar de modelo:
 
 ```bash
-npm run sync:models                              # copia best.onnx desde la raíz del repo
-npm run inspect:model -- public/models/best.onnx # formas, tarea, clases, end2end
-npm run inspect:model -- public/models/best.onnx --write-labels public/models/best.labels.txt
+npm run inspect:model -- public/models/yolo-pose-n-200.onnx   # formas, tarea, clases, end2end
+npm run inspect:model -- public/models/mi-modelo.onnx --write-labels public/models/mi-modelo.labels.txt
+npm run sync:models                                          # trae el resto desde ../web/public/models
 ```
 
 El selector acepta además cualquier `.onnx` por archivo, drag&drop o URL, y un
@@ -259,7 +271,7 @@ auto-detecta:
 | `[1, 4+nc, N]` | detección (COCO ⇒ etiquetas reales; si `nc ≠ 80`, `class N`) |
 | `[1, N, 4+nc]` | detección transpuesta |
 | `[1, 5+3k, N]` | pose (`k` ∈ 11/14/17/19/21/23/26) |
-| `[1, N, 6+3k]` | **pose end2end** (`end2end=True`, NMS en el grafo) — es el caso de `best.onnx`: `[1, 300, 39]` |
+| `[1, N, 6+3k]` | **pose end2end** (`end2end=True`, NMS en el grafo) — es el caso de `yolo-pose-n-200.onnx`: `[1, 300, 39]` |
 | `[1, N, 6]` / `[1, N, 7]` | detección con NMS integrado |
 
 Entrada dinámica soportada: si la dimensión viene como `-1` se usa 640 y se

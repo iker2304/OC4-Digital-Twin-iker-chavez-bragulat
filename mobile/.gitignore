@@ -23,9 +23,16 @@ public/models/*.fbx
 public/models/*.onnx
 
 # Excepción a lo anterior: lo mínimo para que un clon arranque con solo
-# `npm install` (12,7 MB). El gemelo 3D y el modelo por defecto.
+# `npm install`. El gemelo 3D, el modelo por defecto (nano 200 ft4, fp32),
+# el small 640 fp32 para comparar y la variante int8 rápida del 640.
 !public/models/OC4.glb
+!public/models/yolo-pose-n-200.onnx
+!public/models/yolo-pose-s-coco-640.onnx
 !public/models/yolo-pose-n-640-int8.onnx
+
+# Notas de despliegue con datos reales del servidor (host, dominio, nginx).
+# DEPLOY.md es la guía genérica y sí se versiona.
+DEPLOY.local.md
 # ONNX Runtime WASM binaries: `npm run sync:ort` copies them from node_modules
 public/ort/
 

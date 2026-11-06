@@ -64,8 +64,8 @@ export const BUNDLED_MODEL_URL = withBase(
 
 /**
  * Load the bundled model on startup. Turn it off with `VITE_AUTOLOAD_MODEL=0`
- * when the first visit is over a slow link (the model is ~38 MB) and it is
- * better to let the user trigger it from the UI.
+ * when the first visit is over a slow link (the default model is ~11 MB) and it
+ * is better to let the user trigger it from the UI.
  */
 export const AUTOLOAD_MODEL =
     ((import.meta.env.VITE_AUTOLOAD_MODEL as string | undefined) ?? '1') !== '0';

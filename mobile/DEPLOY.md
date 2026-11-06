@@ -49,7 +49,7 @@ la etapa final solo instala `express` y `compression`. El resto de `dependencies
 | Argumento | Por defecto | Para qué |
 |---|---|---|
 | `PUBLIC_BASE` | `/oc4-dt-mobile/` | subpath público; se hornea en el HTML y en todas las URLs que el cliente construye |
-| `VITE_DEFAULT_MODEL_URL` | `/models/yolo-pose-n-640-int8.onnx` | modelo que se carga solo al entrar |
+| `VITE_DEFAULT_MODEL_URL` | `/models/yolo-pose-n-200.onnx` | modelo que se carga solo al entrar (nano 200 ft4, fp32) |
 
 ```bash
 docker build \
@@ -134,11 +134,13 @@ arrancar nginx deja sin servicio a todo lo que haya detrás durante un instante.
 | `public/ort/` | ~41 MB | `npm install` (postinstall) o `npm run sync:ort` |
 | `models/*.pt`, `models/*.zip` | cientos de MB | pesos crudos, no se versionan |
 
-Sí están versionados **`OC4.glb`** (el gemelo 3D) y **`yolo-pose-n-640-int8.onnx`**
-(el modelo por defecto), que son lo mínimo para que un clon arranque sin nada
-más que `npm install`. Si falta el `.glb`, la escena no se rompe: dibuja una
-plataforma procedural y lo avisa. Si falta el modelo, la app abre igual y te pide
-uno desde la interfaz.
+Sí están versionados **`OC4.glb`** (el gemelo 3D), **`yolo-pose-n-200.onnx`** (el
+modelo por defecto, nano 200 ft4 en fp32, 11,2 MB), **`yolo-pose-s-coco-640.onnx`**
+(39,3 MB, el de mejor rotor) y **`yolo-pose-n-640-int8.onnx`** (3,3 MB, la
+variante rápida para móvil). Con eso un clon arranca sin nada más que
+`npm install`. Si falta el `.glb`, la escena no se rompe: dibuja una plataforma
+procedural y lo avisa. Si falta el modelo, la app abre igual y te pide uno desde
+la interfaz.
 
 ## Verificar un despliegue
 
@@ -146,7 +148,7 @@ uno desde la interfaz.
 curl -sI https://<host>/oc4-dt-mobile/ | head -5      # 200 + COOP/COEP
 curl -s https://<host>/oc4-dt-mobile/api/health         # JSON con el host real
 curl -s -o /dev/null -w '%{http_code} %{size_download}\n' \
-     https://<host>/oc4-dt-mobile/models/yolo-pose-n-640-int8.onnx
+     https://<host>/oc4-dt-mobile/models/yolo-pose-n-200.onnx
 ```
 
 Recuerda que con el prefijo recortado, **desde dentro del servidor** la ruta
