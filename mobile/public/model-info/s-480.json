@@ -1,0 +1,61 @@
+{
+ "run": "s-480",
+ "imgsz": 480,
+ "split": "val",
+ "training": {
+  "model": "yolo-pose-s-480.onnx",
+  "source": "onnx desplegado"
+ },
+ "overall": {
+  "box": {
+   "precision": 0.9851,
+   "recall": 0.9839,
+   "map50": 0.9878,
+   "map50_95": 0.8931
+  },
+  "pose": {
+   "precision": 0.9891,
+   "recall": 0.9886,
+   "map50": 0.9895,
+   "map50_95": 0.9706
+  }
+ },
+ "classes": [
+  {
+   "id": 0,
+   "name": "WindTurbine",
+   "box": {
+    "precision": 0.9942,
+    "recall": 0.9963,
+    "map50": 0.995,
+    "map50_95": 0.9604
+   },
+   "pose": {
+    "precision": 0.9932,
+    "recall": 0.9959,
+    "map50": 0.995,
+    "map50_95": 0.9949
+   }
+  },
+  {
+   "id": 1,
+   "name": "Rotor",
+   "box": {
+    "precision": 0.9761,
+    "recall": 0.9715,
+    "map50": 0.9807,
+    "map50_95": 0.8258
+   },
+   "pose": {
+    "precision": 0.985,
+    "recall": 0.9813,
+    "map50": 0.984,
+    "map50_95": 0.9462
+   }
+  }
+ ],
+ "series": [],
+ "csv": null,
+ "bestEpoch": null,
+ "epochsDone": 0
+}

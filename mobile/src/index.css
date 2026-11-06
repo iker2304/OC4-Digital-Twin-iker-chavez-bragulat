@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@theme {
+    --color-oc4-ink: #020617;
+    --color-oc4-sky: #38bdf8;
+}
+
+:root {
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+    color-scheme: dark;
+    /* The app is a dark, fixed, full-bleed surface: use the dynamic viewport so
+     mobile browser chrome does not create a phantom scrollbar. */
+    -webkit-text-size-adjust: 100%;
+}
+
+html,
+body {
+    margin: 0;
+    min-width: 320px;
+    height: 100%;
+    background-color: var(--color-oc4-ink);
+    color: #e2e8f0;
+    overscroll-behavior: none;
+}
+
+body {
+    /* No rubber-band scrolling of the page itself; each screen manages its own. */
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+}
+
+#root {
+    height: 100%;
+}
+
+/* Applied while the live stage is open (see App.tsx). */
+html.oc4-locked,
+html.oc4-locked body {
+    overflow: hidden;
+}
+
+/**
+ * The benchmark page is a *document*, not a fixed surface.
+ *
+ * `body` is pinned and unscrollable because every app screen manages its own
+ * scrolling internally; the bench has no internal scroller, so without this the
+ * tables below the fold were simply unreachable — no scrollbar, no rubber band,
+ * nothing.
+ */
+html.oc4-scroll,
+html.oc4-scroll body {
+    position: static;
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: auto;
+}
+
+html.oc4-scroll #root {
+    height: auto;
+    min-height: 100%;
+}
+
+/* Kill the iOS tap highlight and the 300 ms delay feel. */
+button,
+input,
+a {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+/* Keep the camera/twin canvas layers from being text-selectable or draggable. */
+canvas,
+video {
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+/* Thin, dark scrollbars for the control sheet. */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.35);
+    border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

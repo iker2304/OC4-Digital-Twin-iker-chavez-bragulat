@@ -1,0 +1,15 @@
+node_modules
+dist
+data
+.env
+.env.local
+.env.*.local
+*.log
+.git
+.gitignore
+MIGRATION.md
+README.md
+
+# Assets que la app nunca pide: el gemelo usa OC4.glb y el modelo es un .onnx.
+# Ahorran 27 MB de imagen.
+public/models/OC4.fbx

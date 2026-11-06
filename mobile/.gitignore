@@ -1,0 +1,40 @@
+# Dependencies / build output
+node_modules
+dist
+dist-ssr
+*.local
+*.tsbuildinfo
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+
+# Local env
+.env
+.env.local
+
+# --- Standalone assets (never versioned: synced from the main repo) ---
+# 3D models: `npm run sync:models` copies them from ../web/public/models
+public/models/*.glb
+public/models/*.fbx
+public/models/*.onnx
+
+# Excepción a lo anterior: lo mínimo para que un clon arranque con solo
+# `npm install` (12,7 MB). El gemelo 3D y el modelo por defecto.
+!public/models/OC4.glb
+!public/models/yolo-pose-n-640-int8.onnx
+# ONNX Runtime WASM binaries: `npm run sync:ort` copies them from node_modules
+public/ort/
+
+# Source weights (`scripts/export-onnx.py` turns these into public/models/*.onnx)
+models/*.pt
+# Descargas de Drive (dataset partido en trozos de ~2 GB)
+models/*.zip
+
+# Telemetry dumps
+server/data/
+*.log
+logs

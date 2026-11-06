@@ -1,0 +1,193 @@
+{
+ "models": [
+  {
+   "run": "nano200_coco",
+   "imgsz": 200,
+   "epochs": 100,
+   "poseMap50": 0.8894,
+   "rotorPoseMap50": 0.798,
+   "weightsAt": "2026-10-30T21:10:12",
+   "csv": "nano200_coco.csv"
+  },
+  {
+   "run": "nano200_coco_ft",
+   "imgsz": 200,
+   "epochs": 100,
+   "poseMap50": 0.9029,
+   "rotorPoseMap50": 0.8239,
+   "weightsAt": "2026-10-31T10:54:38",
+   "csv": "nano200_coco_ft.csv"
+  },
+  {
+   "run": "nano200_coco_ft2",
+   "imgsz": 200,
+   "epochs": 200,
+   "poseMap50": 0.911,
+   "rotorPoseMap50": 0.8387,
+   "weightsAt": "2026-10-31T22:31:35",
+   "csv": "nano200_coco_ft2.csv"
+  },
+  {
+   "run": "nano200_coco_ft3",
+   "imgsz": 200,
+   "epochs": 338,
+   "poseMap50": 0.9223,
+   "rotorPoseMap50": 0.8513,
+   "weightsAt": "2026-11-03T09:55:37",
+   "csv": "nano200_coco_ft3.csv"
+  },
+  {
+   "run": "nano200_coco_ft4",
+   "imgsz": 200,
+   "epochs": 267,
+   "poseMap50": 0.9253,
+   "rotorPoseMap50": 0.8576,
+   "weightsAt": "2026-11-03T22:02:22",
+   "csv": "nano200_coco_ft4.csv"
+  },
+  {
+   "run": "small200_coco",
+   "imgsz": 200,
+   "epochs": 100,
+   "poseMap50": 0.9416,
+   "rotorPoseMap50": 0.8891,
+   "weightsAt": "2026-11-01T21:19:15",
+   "csv": "small200_coco.csv"
+  },
+  {
+   "run": "nano256_coco",
+   "imgsz": 256,
+   "epochs": 100,
+   "poseMap50": 0.9134,
+   "rotorPoseMap50": 0.8458,
+   "weightsAt": "2026-10-30T23:20:49",
+   "csv": "nano256_coco.csv"
+  },
+  {
+   "run": "nano256_coco_ft",
+   "imgsz": 256,
+   "epochs": 100,
+   "poseMap50": 0.9267,
+   "rotorPoseMap50": 0.8715,
+   "weightsAt": "2026-10-31T12:46:41",
+   "csv": "nano256_coco_ft.csv"
+  },
+  {
+   "run": "small256_coco",
+   "imgsz": 256,
+   "epochs": 100,
+   "poseMap50": 0.9444,
+   "rotorPoseMap50": 0.8946,
+   "weightsAt": "2026-11-02T00:49:36",
+   "csv": "small256_coco.csv"
+  },
+  {
+   "run": "nano360_coco",
+   "imgsz": 360,
+   "epochs": 100,
+   "poseMap50": 0.977,
+   "rotorPoseMap50": 0.9596,
+   "weightsAt": "2026-10-31T02:05:51",
+   "csv": "nano360_coco.csv"
+  },
+  {
+   "run": "small360_coco",
+   "imgsz": 360,
+   "epochs": 100,
+   "poseMap50": 0.989,
+   "rotorPoseMap50": 0.983,
+   "weightsAt": "2026-11-02T04:28:03",
+   "csv": "small360_coco.csv"
+  },
+  {
+   "run": "nano400_coco",
+   "imgsz": 400,
+   "epochs": 100,
+   "poseMap50": 0.9764,
+   "rotorPoseMap50": 0.9586,
+   "weightsAt": "2026-10-31T04:50:09",
+   "csv": "nano400_coco.csv"
+  },
+  {
+   "run": "small400_coco",
+   "imgsz": 400,
+   "epochs": 100,
+   "poseMap50": 0.9868,
+   "rotorPoseMap50": 0.9787,
+   "weightsAt": "2026-11-03T03:30:24",
+   "csv": "small400_coco.csv"
+  },
+  {
+   "run": "nano480_coco",
+   "imgsz": 480,
+   "epochs": 100,
+   "poseMap50": 0.9778,
+   "rotorPoseMap50": 0.9613,
+   "weightsAt": "2026-10-31T07:43:29",
+   "csv": "nano480_coco.csv"
+  },
+  {
+   "run": "s-480",
+   "imgsz": 480,
+   "epochs": 0,
+   "poseMap50": 0.9895,
+   "rotorPoseMap50": 0.984,
+   "weightsAt": null,
+   "csv": null
+  },
+  {
+   "run": "small480_coco",
+   "imgsz": 480,
+   "epochs": 100,
+   "poseMap50": 0.9887,
+   "rotorPoseMap50": 0.9825,
+   "weightsAt": "2026-11-02T11:51:33",
+   "csv": "small480_coco.csv"
+  },
+  {
+   "run": "s-512",
+   "imgsz": 512,
+   "epochs": 0,
+   "poseMap50": 0.9883,
+   "rotorPoseMap50": 0.9817,
+   "weightsAt": null,
+   "csv": null
+  },
+  {
+   "run": "nano640_coco_ft",
+   "imgsz": 640,
+   "epochs": 100,
+   "poseMap50": 0.9722,
+   "rotorPoseMap50": 0.9495,
+   "weightsAt": "2026-10-31T16:20:00",
+   "csv": "nano640_coco_ft.csv"
+  },
+  {
+   "run": "nano640_full",
+   "imgsz": 640,
+   "epochs": 50,
+   "poseMap50": 0.9839,
+   "rotorPoseMap50": 0.9732,
+   "weightsAt": "2026-10-29T00:46:32",
+   "csv": "nano640_full.csv"
+  },
+  {
+   "run": "s-640",
+   "imgsz": 640,
+   "epochs": 0,
+   "poseMap50": 0.9939,
+   "rotorPoseMap50": 0.9927,
+   "weightsAt": null,
+   "csv": null
+  },
+  {
+   "run": "small640_coco",
+   "imgsz": 640,
+   "epochs": 100,
+   "poseMap50": 0.9935,
+   "rotorPoseMap50": 0.992,
+   "weightsAt": "2026-11-02T18:46:34",
+   "csv": "small640_coco.csv"
+  }
+ ]
+}

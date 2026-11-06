@@ -1,0 +1,28 @@
+{
+  "vertexCount": 684717,
+  "nodeCount": 56428,
+  "nodeIndex": "oc4-mode-nodeindex.bin",
+  "modes": [
+    {
+      "label": "Surge",
+      "freqHz": 0.51,
+      "axis": "x",
+      "peak": 1839.34481,
+      "file": "oc4-mode-0.bin"
+    },
+    {
+      "label": "Sway",
+      "freqHz": 0.57,
+      "axis": "y",
+      "peak": 1839.43145,
+      "file": "oc4-mode-1.bin"
+    },
+    {
+      "label": "Heave",
+      "freqHz": 2.05,
+      "axis": "z",
+      "peak": 1360.7555,
+      "file": "oc4-mode-2.bin"
+    }
+  ]
+}
