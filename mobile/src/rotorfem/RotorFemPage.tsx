@@ -97,13 +97,13 @@ function colourForSigned(value: number, target: THREE.Color): THREE.Color {
     // material del gemelo (parecía que la pala no estaba pintada); el verde se
     // distingue del casco y de los dos extremos. El tono se interpola, así que el
     // paso por cian (hacia el azul) y por amarillo (hacia el rojo) es continuo.
-    const tono = THREE.MathUtils.lerp(
-        NEUTRAL_HUE,
-        t >= 0 ? 0 : 0.6,
-        Math.pow(fuerza, 0.6)
-    );
-    const saturacion = THREE.MathUtils.lerp(0.55, 0.95, fuerza);
-    const luz = THREE.MathUtils.lerp(0.66, 0.46, fuerza);
+    // La curva sube antes que lineal (exponente < 1): con la escala bien puesta los
+    // valores típicos caen en |t| ≈ 0,3, y ahí un lerp recto dejaba el mapa en verde
+    // pálido sin distinguir nada.
+    const curva = Math.pow(fuerza, 0.4);
+    const tono = THREE.MathUtils.lerp(NEUTRAL_HUE, t >= 0 ? 0 : 0.6, curva);
+    const saturacion = THREE.MathUtils.lerp(0.2, 1, curva);
+    const luz = THREE.MathUtils.lerp(0.72, 0.42, curva);
     return target.setHSL(tono, saturacion, luz);
 }
 
@@ -339,7 +339,8 @@ function paintBlades(
     weightFor: (bladeName: string) => Weights,
     range: { min: number; max: number } | null,
     field: 'magnitude' | 'signed',
-    smooth: boolean
+    smooth: boolean,
+    directions: Record<string, [number, number, number]> | null
 ): {
     painted: number;
     reason: string | null;
@@ -369,7 +370,11 @@ function paintBlades(
 
     for (const [bladeName, blade] of Object.entries(bake.blades)) {
         const total = blade.vertexCount;
-        const eje = blade.axis ?? [1, 0, 0];
+        // Dirección sobre la que se proyecta el campo con signo: la de la flexión
+        // dominante, no el eje de la pala. Proyectar sobre el eje mide compresión
+        // axial (nanómetros) y dejaba el mapa casi plano; la flexión es la que se
+        // lleva los 450 nm y la que interesa ver con signo.
+        const eje = directions?.[bladeName] ?? blade.axis ?? [1, 0, 0];
         const salida = new Float32Array(total);
         const escalar = new Float32Array(total);
         const vx = new Float32Array(total);
@@ -1129,6 +1134,47 @@ export function RotorFemPage() {
         ]
     );
 
+    /**
+     * Dirección de flexión dominante de cada pala, para el campo con signo.
+     *
+     * Se saca del caso de mayor pico (`blade-x`: 452 nm, flexión en el plano) como
+     * la media de todos sus vectores, normalizada. Es un dato del análisis, no
+     * depende del ángulo, así que el signo es estable mientras el rotor gira.
+     */
+    const flexDirections = useMemo(() => {
+        const data = bake.data;
+        if (!data) return null;
+        const casos = ['blade-x', 'blade-y', 'blade-z'];
+        const out: Record<string, [number, number, number]> = {};
+        for (const [bladeName, blade] of Object.entries(data.blades)) {
+            let mejor = '';
+            let mejorPico = 0;
+            for (const caso of casos) {
+                const pico = data.cases[caso]?.vectorPeaks?.[bladeName] ?? 0;
+                if (pico > mejorPico) {
+                    mejorPico = pico;
+                    mejor = caso;
+                }
+            }
+            const comps = mejor ? data.cases[mejor]?.vectors?.[bladeName] : undefined;
+            if (!comps) continue;
+            const cx = cachedBytes(`${mejor}|${bladeName}|x`, () => base64ToInt8(comps.x)) as Int8Array;
+            const cy = cachedBytes(`${mejor}|${bladeName}|y`, () => base64ToInt8(comps.y)) as Int8Array;
+            const cz = cachedBytes(`${mejor}|${bladeName}|z`, () => base64ToInt8(comps.z)) as Int8Array;
+            let sx = 0;
+            let sy = 0;
+            let sz = 0;
+            for (let index = 0; index < Math.min(blade.vertexCount, cx.length); index += 1) {
+                sx += cx[index];
+                sy += cy[index];
+                sz += cz[index];
+            }
+            const norma = Math.hypot(sx, sy, sz);
+            if (norma > 0) out[bladeName] = [sx / norma, sy / norma, sz / norma];
+        }
+        return out;
+    }, [bake.data]);
+
     /** Nombres de las palas del bake, para los textos de la interfaz. */
     const bladeNames = useMemo(() => Object.keys(bake.data?.blades ?? {}), [bake.data]);
 
@@ -1304,7 +1350,8 @@ export function RotorFemPage() {
             weightFor,
             scaleRange ?? (staticRange.max > 0 ? staticRange : null),
             field,
-            smooth
+            smooth,
+            flexDirections
         );
         setPaintMs(performance.now() - started);
         setPainted({ painted: result.painted, reason: result.reason });
@@ -1315,7 +1362,7 @@ export function RotorFemPage() {
                 ? [result.min, result.max]
                 : previous
         );
-    }, [gltf, paint, bake.data, weightFor, scaleRange, staticRange, field, smooth]);
+    }, [gltf, paint, bake.data, weightFor, scaleRange, staticRange, field, smooth, flexDirections]);
 
     // Al cambiar de gemelo (o desmontar) hay que devolver los materiales del anterior.
     useEffect(() => {
@@ -1327,7 +1374,7 @@ export function RotorFemPage() {
     useEffect(() => {
         if (!gltf) return;
         applyTwinOpacity(gltf, twinOpacity);
-    }, [gltf, twinOpacity, paint, bake.data, weightFor, scaleRange, field]);
+    }, [gltf, twinOpacity, paint, bake.data, weightFor, scaleRange, field, flexDirections]);
 
     const residual = bake.data?.blades.base?.icp;
 
