@@ -1561,18 +1561,18 @@ export function RotorFemPage() {
                                                 : 'bg-[linear-gradient(90deg,hsl(238,85%,50%),hsl(178,85%,50%),hsl(119,85%,50%),hsl(60,85%,50%),hsl(0,85%,50%))]'
                                         }`}
                                     />
-                                    {/* Los dos extremos son **valores absolutos**: el recorrido
-                                        va del doble del rango del análisis a cero (y de cero al
-                                        doble), así se puede apretar por debajo del automático.
-                                        Con multiplicadores recortados el pulgar se quedaba
-                                        pegado al tope y no representaba lo que se pintaba. */}
+                                    {/* Los dos extremos son **valores absolutos** y el recorrido
+                                        es el del análisis: el pulgar en su tope = escala
+                                        completa (lo que da «auto»), arrastrar hacia el centro
+                                        aprieta. Antes el recorrido era el doble, así que el
+                                        valor automático caía en mitad de la barra. */}
                                     <input
                                         type="range"
-                                        min={-2 * (staticRange.max || 0)}
+                                        min={staticRange.min < 0 ? staticRange.min : 0}
                                         max={0}
                                         step={(staticRange.max || 1) / 400}
                                         disabled={!(staticRange.min < 0 && staticRange.max > 0)}
-                                        value={Math.min(0, escalaMin)}
+                                        value={Math.min(0, Math.max(staticRange.min, escalaMin))}
                                         aria-label="extremo azul"
                                         onChange={(event) =>
                                             setScaleRange({
@@ -1584,10 +1584,10 @@ export function RotorFemPage() {
                                     <input
                                         type="range"
                                         min={0}
-                                        max={2 * (staticRange.max || 0)}
+                                        max={staticRange.max > 0 ? staticRange.max : 1}
                                         step={(staticRange.max || 1) / 400}
                                         disabled={!(staticRange.max > 0)}
-                                        value={Math.max(0, escalaMax)}
+                                        value={Math.max(0, Math.min(staticRange.max, escalaMax))}
                                         aria-label="extremo rojo"
                                         onChange={(event) =>
                                             setScaleRange({
