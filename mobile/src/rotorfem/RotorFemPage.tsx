@@ -1193,15 +1193,40 @@ export function RotorFemPage() {
     const peak = colourScale ?? paintScale ?? current.data?.stats.max ?? 1;
 
     /**
+     * Escala **estática** del análisis, sacada de los picos de los casos del JSON.
+     *
+     * Antes salía del campo calculado en cada repintado, y como el reparto cambia
+     * con el giro del rotor, el máximo se movía solo y arrastraba las manijas. El
+     * rango de un caso es un dato del análisis, no algo que dependa del instante.
+     *
+     * Para gravedad se toma el mayor de los tres (x, y, z) y, con signo, el mismo
+     * valor en negativo.
+     */
+    const staticRange = useMemo(() => {
+        const data = bake.data;
+        if (!data) return { min: 0, max: 0 };
+        const peakOf = (name: string) => {
+            const entry = data.cases[name];
+            return entry ? Math.max(0, ...Object.values(entry.peaks)) : 0;
+        };
+        let max = 0;
+        if (mode === 'unit') max = caseName ? peakOf(caseName) : 0;
+        else if (mode === 'centripetal') max = peakOf('blade-centripetal');
+        else if (mode === 'tangential') max = peakOf('blade-tangential');
+        else if (mode === 'gravity') {
+            max = Math.max(peakOf('blade-x'), peakOf('blade-y'), peakOf('blade-z'));
+        }
+        return { min: field === 'signed' ? -max : 0, max };
+    }, [bake.data, mode, caseName, field]);
+
+    /**
      * Extremos del colorbar: los forzados o los reales del campo.
      *
      * Para el campo con signo el mínimo se recorta a 0 cuando el campo es todo
      * positivo, de forma que el azul ocupa su mitad solo si hay algo que enseñar.
      */
-    const escalaMin = scaleRange?.min ?? Math.min(autoRange[0], 0);
-    const escalaMax = scaleRange?.max ?? autoRange[1];
-    const factorMin = autoRange[0] < 0 ? escalaMin / autoRange[0] : 1;
-    const factorMax = autoRange[1] > 0 ? escalaMax / autoRange[1] : 1;
+    const escalaMin = scaleRange?.min ?? staticRange.min;
+    const escalaMax = scaleRange?.max ?? staticRange.max;
 
     // Pintar el gemelo: se quita siempre antes, para que cambiar de caso o
     // apagar la casilla no deje colores viejos pegados.
@@ -1216,7 +1241,14 @@ export function RotorFemPage() {
             return;
         }
         const started = performance.now();
-        const result = paintBlades(gltf, bake.data, weightFor, scaleRange, field, smooth);
+        const result = paintBlades(
+            gltf,
+            bake.data,
+            weightFor,
+            scaleRange ?? (staticRange.max > 0 ? staticRange : null),
+            field,
+            smooth
+        );
         setPaintMs(performance.now() - started);
         setPainted({ painted: result.painted, reason: result.reason });
         // Solo se guarda si cambia de verdad: esto se ejecuta a 9 Hz mientras gira y
@@ -1226,7 +1258,7 @@ export function RotorFemPage() {
                 ? [result.min, result.max]
                 : previous
         );
-    }, [gltf, paint, bake.data, weightFor, scaleRange, field, smooth]);
+    }, [gltf, paint, bake.data, weightFor, scaleRange, staticRange, field, smooth]);
 
     // Al cambiar de gemelo (o desmontar) hay que devolver los materiales del anterior.
     useEffect(() => {
@@ -1529,33 +1561,38 @@ export function RotorFemPage() {
                                                 : 'bg-[linear-gradient(90deg,hsl(238,85%,50%),hsl(178,85%,50%),hsl(119,85%,50%),hsl(60,85%,50%),hsl(0,85%,50%))]'
                                         }`}
                                     />
+                                    {/* Los dos extremos son **valores absolutos**: el recorrido
+                                        va del doble del rango del análisis a cero (y de cero al
+                                        doble), así se puede apretar por debajo del automático.
+                                        Con multiplicadores recortados el pulgar se quedaba
+                                        pegado al tope y no representaba lo que se pintaba. */}
                                     <input
                                         type="range"
-                                        min={0.1}
-                                        max={4}
-                                        step={0.05}
-                                        disabled={!(autoRange[0] < 0)}
-                                        value={factorMin}
+                                        min={-2 * (staticRange.max || 0)}
+                                        max={0}
+                                        step={(staticRange.max || 1) / 400}
+                                        disabled={!(staticRange.min < 0 && staticRange.max > 0)}
+                                        value={Math.min(0, escalaMin)}
                                         aria-label="extremo azul"
                                         onChange={(event) =>
                                             setScaleRange({
-                                                min: autoRange[0] * Number(event.target.value),
+                                                min: Number(event.target.value),
                                                 max: escalaMax,
                                             })
                                         }
                                     />
                                     <input
                                         type="range"
-                                        min={0.1}
-                                        max={4}
-                                        step={0.05}
-                                        disabled={!(autoRange[1] > 0)}
-                                        value={factorMax}
+                                        min={0}
+                                        max={2 * (staticRange.max || 0)}
+                                        step={(staticRange.max || 1) / 400}
+                                        disabled={!(staticRange.max > 0)}
+                                        value={Math.max(0, escalaMax)}
                                         aria-label="extremo rojo"
                                         onChange={(event) =>
                                             setScaleRange({
                                                 min: escalaMin,
-                                                max: autoRange[1] * Number(event.target.value),
+                                                max: Number(event.target.value),
                                             })
                                         }
                                     />
@@ -1566,7 +1603,7 @@ export function RotorFemPage() {
                                 </div>
                                 <div className="mt-1 flex items-center justify-between text-[10px] text-slate-600">
                                     <span>
-                                        escala {scaleRange === null ? 'automática' : 'manual'} · 100 % =
+                                        escala {scaleRange === null ? 'del análisis' : 'manual'} · 100 % =
                                         caso unitario ={' '}
                                         <span className="font-mono">{formatMetres(paintScale)}</span>
                                     </span>
@@ -1582,7 +1619,21 @@ export function RotorFemPage() {
                                         <span className="font-mono text-slate-500">{paintMs.toFixed(1)} ms</span>
                                         <button
                                             type="button"
+                                            onClick={() =>
+                                                setScaleRange({
+                                                    min: Math.min(autoRange[0], 0),
+                                                    max: autoRange[1],
+                                                })
+                                            }
+                                            title="fijar la escala al campo que se está viendo ahora"
+                                            className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-white/[0.07]"
+                                        >
+                                            ajustar
+                                        </button>
+                                        <button
+                                            type="button"
                                             onClick={() => setScaleRange(null)}
+                                            title="volver al rango del análisis"
                                             className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-white/[0.07]"
                                         >
                                             auto
@@ -1591,15 +1642,13 @@ export function RotorFemPage() {
                                 </div>
                             </div>
                             <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
-                                <dt>mín / máx real</dt>
+                                <dt>escala del análisis</dt>
                                 <dd className="text-right font-mono text-slate-300">
-                                    {formatMetres(autoRange[0])} … {formatMetres(autoRange[1])}
+                                    {formatMetres(staticRange.min)} … {formatMetres(staticRange.max)}
                                 </dd>
-                                <dt>vs caso unitario</dt>
-                                <dd className="text-right font-mono text-slate-300">
-                                    {paintScale > 0
-                                        ? `${Math.round((Math.max(Math.abs(autoRange[0]), autoRange[1]) / paintScale) * 100)} %`
-                                        : '—'}
+                                <dt>campo actual</dt>
+                                <dd className="text-right font-mono text-slate-400">
+                                    {formatMetres(autoRange[0])} … {formatMetres(autoRange[1])}
                                 </dd>
                             </dl>
                             {current.error ? (
