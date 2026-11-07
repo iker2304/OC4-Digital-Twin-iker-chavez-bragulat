@@ -1756,6 +1756,34 @@ export function RotorFemPage() {
                                     {formatMetres(autoRange[0])} … {formatMetres(autoRange[1])}
                                 </dd>
                             </dl>
+                            {/* Explicación del modelo, para no tener que
+                                reconstruirla de memoria cada vez. */}
+                            <details className="mt-2 rounded border border-white/10 bg-white/[0.02] p-2">
+                                <summary className="cursor-pointer text-[10px] text-slate-500">
+                                    cómo se calcula
+                                </summary>
+                                <div className="mt-1 space-y-1 text-[10px] leading-relaxed text-slate-600">
+                                    <p>
+                                        <span className="text-slate-400">Cinco casos base</span> horneados
+                                        del FEM. En su sistema la pala va a lo largo de <b>−Z</b>, así
+                                        que <b>z</b> es compresión axial (1,5 nm) y <b>x</b>/<b>y</b>{' '}
+                                        son flexión (452 y 243 nm).
+                                    </p>
+                                    <p>
+                                        <span className="text-slate-400">Peso de cada caso:</span> los
+                                        unitarios van a 1; la centrífuga a la amplificación; la
+                                        tangencial a α/α<sub>ref</sub> (con signo); la gravedad a los{' '}
+                                        <b>cosenos</b> de la vertical en el sistema de esa pala
+                                        (inclinación + giro del rotor + matriz FEM→glb).
+                                    </p>
+                                    <p>
+                                        <span className="text-slate-400">Superposición:</span>{' '}
+                                        u(v) = Σ w<sub>c</sub>·u<sub>c</sub>(v), <b>suma vectorial</b>,
+                                        no de módulos. Se pinta |u| o su proyección sobre la
+                                        dirección de flexión (con signo: hacia un lado u otro).
+                                    </p>
+                                </div>
+                            </details>
                             {current.error ? (
                                 <p className="mt-2 text-[11px] text-amber-300">Error: {current.error}</p>
                             ) : null}
