@@ -357,6 +357,16 @@ def interpolate(tree: cKDTree, magnitudes: np.ndarray, targets: np.ndarray) -> t
     return values, distances[:, -1]
 
 
+def interpolate_vectors(tree: cKDTree, vectors: np.ndarray, targets: np.ndarray) -> np.ndarray:
+    """IDW de los tres componentes. El signo se conserva, así que la superposición
+    de cargas es una suma vectorial de verdad (los módulos sumados no lo son)."""
+    distances, indices = tree.query(targets, k=IDW_NEIGHBOURS)
+    distances = np.maximum(distances, 1e-12)
+    weights = 1.0 / (distances**2)
+    weights = weights / weights.sum(axis=1, keepdims=True)
+    return (weights[:, :, None] * vectors[indices]).sum(axis=1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cases", nargs="*", help="casos a interpolar (por defecto, todos)")
@@ -502,10 +512,29 @@ def main() -> None:
             peak = max(float(values.max()), 1e-30)
             quantised = np.clip(np.round(values / peak * 255), 0, 255).astype(np.uint8)
 
-            entry = payload["cases"].setdefault(case["case"], {"peaks": {}, "values": {}, "farNeighbour": {}})
+            entry = payload["cases"].setdefault(
+                case["case"], {"peaks": {}, "values": {}, "farNeighbour": {}, "vectors": {}, "vectorPeaks": {}}
+            )
             entry["peaks"][name] = peak
             entry["values"][name] = base64.b64encode(quantised.tobytes()).decode("ascii")
             entry["farNeighbour"][name] = float(np.quantile(far, 0.95))
+
+            # Los vectores hacen falta en todos los casos: la carga tangencial (α)
+            # también cambia de signo al acelerar y al frenar, y sin las componentes
+            # el mapa no puede distinguirlo.
+            encoded_vectors = case.get("vectors")
+            if encoded_vectors:
+                raw = np.frombuffer(base64.b64decode(encoded_vectors), dtype="<f4").reshape(-1, 3)
+                # Del frame FEM al de la pala con la misma rotación del registro.
+                rotated = np.asarray(raw, dtype=np.float64) @ np.asarray(stats["rotation"]).T
+                interpolated = interpolate_vectors(tree, rotated, blade)
+                vector_peak = max(float(np.abs(interpolated).max()), 1e-30)
+                entry["vectorPeaks"][name] = vector_peak
+                for axis, column in zip("xyz", range(3)):
+                    component = np.clip(np.round(interpolated[:, column] / vector_peak * 127), -127, 127)
+                    entry["vectors"].setdefault(name, {})[axis] = base64.b64encode(
+                        component.astype(np.int8).tobytes()
+                    ).decode("ascii")
 
     args.out.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     size = args.out.stat().st_size / 1024

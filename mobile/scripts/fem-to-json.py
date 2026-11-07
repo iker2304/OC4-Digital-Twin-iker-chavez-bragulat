@@ -38,6 +38,7 @@ Salida en `mobile/public/rotor-fem/`:
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import math
@@ -190,13 +191,15 @@ def load_case(case_dir: Path) -> dict:
     displacements = read_displacements(res)
 
     magnitudes: list[float] = []
+    vectors = np.zeros((len(ids), 3), dtype=np.float64)
     missing = 0
-    for node_id in ids:
+    for index, node_id in enumerate(ids):
         vector = displacements.get(node_id)
         if vector is None:
             missing += 1
             magnitudes.append(0.0)
             continue
+        vectors[index] = vector
         magnitudes.append(math.sqrt(sum(component * component for component in vector)))
 
     return {
@@ -205,6 +208,10 @@ def load_case(case_dir: Path) -> dict:
         "xyz": xyz,
         "triangles": triangles,
         "magnitudes": magnitudes,
+        # Los tres componentes con signo. Hacen falta para superponer cargas
+        # (gravedad según un eje arbitrario): sumar módulos no es lo mismo y con
+        # pesos negativos ni siquiera está definido.
+        "vectors": vectors,
         "missingNodes": missing,
     }
 
@@ -303,6 +310,16 @@ def main() -> None:
             "source": {"dat": f"{case['case']}.dat", "res": f"{case['case']}.flavia.res"},
             "warnings": {"nodesWithoutResult": case["missingNodes"]},
         }
+        # Vectores girados al frame de referencia, para poder combinarlos entre
+        # casos. Se guardan como float32 en base64: 12 bytes por nodo y caso.
+        rotation = alignment["rotation"]
+        vectors = case["vectors"]
+        if rotation is not None:
+            vectors = vectors @ np.asarray(rotation, dtype=np.float64).T
+        payload["vectors"] = base64.b64encode(
+            np.ascontiguousarray(vectors, dtype="<f4").tobytes()
+        ).decode("ascii")
+
         if shared:
             payload["mesh"] = "mesh.json"
         else:

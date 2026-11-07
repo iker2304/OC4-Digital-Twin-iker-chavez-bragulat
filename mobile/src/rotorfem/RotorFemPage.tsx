@@ -81,6 +81,26 @@ function colourFor(value: number, target: THREE.Color): THREE.Color {
     return target.setHSL(0.66 * (1 - t), 0.85, 0.5 + 0.08 * t);
 }
 
+/**
+ * Paleta **divergente** para campos con signo: azul (−1) → gris claro (0) → rojo (+1).
+ *
+ * En el cero el color se lava a gris en vez de saltar de un extremo al otro, que
+ * es lo que hace la paleta secuencial si se le mete un valor negativo.
+ */
+function colourForSigned(value: number, target: THREE.Color): THREE.Color {
+    const t = Math.min(1, Math.max(-1, value));
+    const fuerza = Math.abs(t);
+    // El cero es un gris medio, no un blanco: con el casi-blanco las zonas neutras
+    // (casi toda la pala) se confundían con el material sin pintar del gemelo.
+    return target.setHSL(t >= 0 ? 0 : 0.6, 0.12 + 0.78 * fuerza, 0.6 - 0.16 * fuerza);
+}
+
+/** int8 en base64 (los componentes con signo). */
+function base64ToInt8(encoded: string): Int8Array {
+    const bytes = base64ToBytes(encoded);
+    return new Int8Array(bytes.buffer, bytes.byteOffset, bytes.length);
+}
+
 /* ------------------------------------------------------- casos de carga */
 
 /**
@@ -100,8 +120,9 @@ export type LoadMode = 'unit' | 'centripetal' | 'tangential' | 'gravity';
 
 /** Metros a la unidad que toque: las escalas van de nanómetros a micrómetros. */
 function formatMetres(value: number): string {
-    if (value < 1e-6) return `${(value * 1e9).toFixed(1)} nm`;
-    if (value < 1e-3) return `${(value * 1e6).toFixed(2)} µm`;
+    const magnitud = Math.abs(value);
+    if (magnitud < 1e-6) return `${(value * 1e9).toFixed(1)} nm`;
+    if (magnitud < 1e-3) return `${(value * 1e6).toFixed(2)} µm`;
     return `${(value * 1e3).toFixed(2)} mm`;
 }
 
@@ -136,10 +157,13 @@ function bladeGravityWeights(angles: [number, number, number], azimuth: number):
     const inverse = new THREE.Matrix4().makeRotationFromEuler(euler).invert();
     const plat = new THREE.Vector3(0, -1, 0).applyMatrix4(inverse);
     const pala = plat.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
+    // **Con signo**: si la gravedad va al revés del eje del caso, el desplazamiento
+    // se invierte, y eso es justo lo que hay que poder pintar cuando el campo tiene
+    // signo (−100 % compresión ↔ +100 % tracción).
     return {
-        'blade-x': Math.abs(pala.x),
-        'blade-y': Math.abs(pala.y),
-        'blade-z': Math.abs(pala.z),
+        'blade-x': pala.x,
+        'blade-y': pala.y,
+        'blade-z': pala.z,
     };
 }
 
@@ -164,12 +188,29 @@ function base64ToBytes(encoded: string): Uint8Array {
  * Devuelve cuántas primitivas se pintaron (0 si el `.glb` no es el que se horneó:
  * el recuento de vértices deja de cuadrar y se descarta en vez de pintar basura).
  */
+/**
+ * Pinta el campo FEM **sobre las mallas de pala del propio `.glb`**.
+ *
+ * La superposición de cargas se hace bien: los casos de gravedad (`blade-x/y/z`)
+ * se combinan **como vectores**, con sus cosenos directores y con su signo. Sumar
+ * módulos, que es lo que se hacía antes, no es lo mismo (sobreestima, y con un
+ * peso negativo ni siquiera está definido). Centrífuga y tangencial son casos
+ * positivos y simétricos, así que ahí basta el módulo.
+ *
+ * `field` decide qué se pinta (el 100 % es **siempre el caso de referencia**, no el
+ * máximo del modo: centrífuga a 5× pasa del 100 %, y tangencial se sale por abajo):
+ * - `magnitude`: |u|, de 0 % hacia arriba.
+ * - `signed`: con signo. Con un solo caso lo pone el peso (α > 0 acelera, α < 0
+ *   frena); con varios (gravedad) es la proyección sobre el eje de la pala, que es
+ *   lo que distingue tracción de compresión.
+ */
 function paintBlades(
     scene: THREE.Object3D,
     bake: BladeBake,
     weightFor: (bladeName: string) => Weights,
-    scale: number
-): { painted: number; reason: string | null; peak: number } {
+    scale: number,
+    field: 'magnitude' | 'signed'
+): { painted: number; reason: string | null; peak: number; min: number; max: number } {
     // three.js **sanea** los nombres al cargar el glTF (`MeshBody1 (2)` llega como
     // `MeshBody1_(2)`), así que no se puede buscar por el nombre del fichero: se
     // comparan las dos cadenas sin espacios ni signos.
@@ -180,43 +221,98 @@ function paintBlades(
         if (key && !byName.has(key)) byName.set(key, child);
     });
 
-    // 1) Combinar los casos, pala a pala: u(v) = Σ w_c · |u_c(v)|. Los cinco casos
-    //    son lineales, así que superponerlos es válido para un mapa de color. Los
-    //    pesos se piden **por pala** porque en gravedad cada una ve otra dirección.
-    const combinado = new Map<string, Float32Array>();
+    const valores = new Map<string, Float32Array>();
     let peak = 0;
+    let min = Infinity;
+    let max = -Infinity;
     let algunActivo = false;
+
     for (const [bladeName, blade] of Object.entries(bake.blades)) {
-        const activos = Object.entries(weightFor(bladeName)).filter(
-            ([name, weight]) => weight > 0 && bake.cases[name]
-        );
-        if (activos.length > 0) algunActivo = true;
-        const total = new Float32Array(blade.vertexCount);
-        for (const [caseName, weight] of activos) {
+        const total = blade.vertexCount;
+        const eje = blade.axis ?? [1, 0, 0];
+        const salida = new Float32Array(total);
+        const escalar = new Float32Array(total);
+        const vx = new Float32Array(total);
+        const vy = new Float32Array(total);
+        const vz = new Float32Array(total);
+        let hayVector = false;
+        /** Pesos efectivamente aplicados, para saber si el signo es único. */
+        const aplicados: number[] = [];
+
+        const pesos = weightFor(bladeName);
+        // Un caso conocido con peso 0 (α = 0, por ejemplo) sigue siendo un campo:
+        // se pinta en el cero de la escala en vez de dejar las palas sin color.
+        if (Object.keys(pesos).some((name) => bake.cases[name])) algunActivo = true;
+
+        for (const [caseName, weight] of Object.entries(pesos)) {
+            if (!weight) continue;
             const entry = bake.cases[caseName];
+            if (!entry) continue;
+            const comps = entry.vectors?.[bladeName];
+            if (comps) {
+                // --- caso vectorial (gravedad): se suma con su signo
+                const peakComponente = entry.vectorPeaks?.[bladeName] ?? 0;
+                if (!(peakComponente > 0)) continue;
+                const factor = (weight * peakComponente) / 127;
+                const cx = base64ToInt8(comps.x);
+                const cy = base64ToInt8(comps.y);
+                const cz = base64ToInt8(comps.z);
+                const limite = Math.min(total, cx.length);
+                for (let index = 0; index < limite; index += 1) {
+                    vx[index] += cx[index] * factor;
+                    vy[index] += cy[index] * factor;
+                    vz[index] += cz[index] * factor;
+                }
+                hayVector = true;
+                algunActivo = true;
+                aplicados.push(weight);
+                continue;
+            }
+            // --- caso escalar (centrífuga, tangencial): el módulo basta
+            if (!(weight > 0)) continue;
             const encoded = entry.values[bladeName];
             if (!encoded) continue;
             const bytes = base64ToBytes(encoded);
             const factor = (weight * (entry.peaks[bladeName] ?? 0)) / 255;
-            const limite = Math.min(total.length, bytes.length);
-            for (let index = 0; index < limite; index += 1) total[index] += bytes[index] * factor;
+            const limite = Math.min(total, bytes.length);
+            for (let index = 0; index < limite; index += 1) escalar[index] += bytes[index] * factor;
+            aplicados.push(weight);
+            algunActivo = true;
         }
-        combinado.set(bladeName, total);
-        for (const value of total) if (value > peak) peak = value;
+
+        // Con **un solo caso** activo el campo entero va en una dirección: el signo
+        // lo pone el peso (α > 0 acelera, α < 0 frena), así que el valor firmado es
+        // el módulo con ese signo. Con varios (gravedad) el signo cambia de una zona
+        // a otra, y lo que tiene sentido es proyectar sobre el eje de la pala.
+        const signoUnico = aplicados.length === 1 ? Math.sign(aplicados[0]) : 0;
+
+        for (let index = 0; index < total; index += 1) {
+            const modulo = hayVector ? Math.hypot(vx[index], vy[index], vz[index]) : 0;
+            const axial = vx[index] * eje[0] + vy[index] * eje[1] + vz[index] * eje[2];
+            salida[index] =
+                field === 'signed'
+                    ? signoUnico
+                        ? signoUnico * (modulo + escalar[index])
+                        : axial + escalar[index]
+                    : modulo + escalar[index];
+            const absoluto = Math.abs(salida[index]);
+            if (absoluto > peak) peak = absoluto;
+            if (salida[index] < min) min = salida[index];
+            if (salida[index] > max) max = salida[index];
+        }
+        valores.set(bladeName, salida);
     }
-    if (!algunActivo) return { painted: 0, reason: 'ningún caso activo', peak: 0 };
-    if (!(peak > 0)) return { painted: 0, reason: 'el caso vale 0 con estos parámetros', peak: 0 };
+
+    if (!algunActivo) return { painted: 0, reason: 'ningún caso activo', peak: 0, min: 0, max: 0 };
     // La escala del color **no** se normaliza con el pico del momento: si no, mover
     // el deslizador no cambiaría nada (el máximo siempre saldría rojo). Se fija al
-    // máximo del modo, así que subir la carga **sí** enciende el mapa.
-    const referencia = scale > 0 ? scale : peak;
+    // caso de referencia (100 %), así que subir la carga **sí** enciende el mapa.
+    // Con todo a cero (α = 0) `peak` vale 0 pero se pinta igual: el campo existe.
+    const referencia = scale > 0 ? scale : peak > 0 ? peak : 1;
 
-    // 2) Pintar, con **una sola escala** para las tres palas: si cada una se
-    //    normalizase por su propio máximo, el mismo color significaría cosas
-    //    distintas en cada aspa.
     let painted = 0;
     for (const [bladeName, blade] of Object.entries(bake.blades)) {
-        const total = combinado.get(bladeName);
+        const total = valores.get(bladeName);
         if (!total) continue;
         let offset = 0;
 
@@ -225,7 +321,7 @@ function paintBlades(
             offset += primitive.count;
 
             const object = byName.get(normalize(primitive.name));
-            if (!object) return { painted, reason: `no encuentro el nodo «${primitive.name}»`, peak };
+            if (!object) return { painted, reason: `no encuentro el nodo «${primitive.name}»`, peak, min, max };
 
             const meshes: THREE.Mesh[] = [];
             object.traverse((child) => {
@@ -233,7 +329,7 @@ function paintBlades(
             });
             const mesh = meshes[primitive.primitive];
             if (!mesh || Array.isArray(mesh.material)) {
-                return { painted, reason: `«${primitive.name}» no es una malla simple`, peak };
+                return { painted, reason: `«${primitive.name}» no es una malla simple`, peak, min, max };
             }
             const runtime = mesh.geometry.attributes.position.count;
             if (runtime !== primitive.count) {
@@ -241,6 +337,8 @@ function paintBlades(
                     painted,
                     reason: `«${primitive.name}»: ${runtime} vértices en el .glb, ${primitive.count} en el JSON`,
                     peak,
+                    min,
+                    max,
                 };
             }
 
@@ -255,7 +353,9 @@ function paintBlades(
             const array = colours.array as Float32Array;
             const colour = new THREE.Color();
             for (let index = 0; index < primitive.count; index += 1) {
-                colourFor(slice[index] / referencia, colour);
+                const normalized = slice[index] / referencia;
+                if (field === 'signed') colourForSigned(normalized, colour);
+                else colourFor(normalized, colour);
                 array[index * 3] = colour.r;
                 array[index * 3 + 1] = colour.g;
                 array[index * 3 + 2] = colour.b;
@@ -280,7 +380,7 @@ function paintBlades(
             painted += 1;
         }
     }
-    return { painted, reason: null, peak };
+    return { painted, reason: null, peak, min, max };
 }
 
 /** Quita el color y devuelve los materiales originales. */
@@ -609,6 +709,8 @@ export function RotorFemPage() {
      */
     const [spinAngle, setSpinAngle] = useState(0);
     const [paintedPeak, setPaintedPeak] = useState(0);
+    /** Rango real del campo pintado (m), para enseñar cuánto se sale del mapa. */
+    const [paintedRange, setPaintedRange] = useState<[number, number]>([0, 0]);
     const [anchor, setAnchor] = useState<Anchor>(DEFAULT_ANCHOR);
 
     /** Ángulo girado del rotor, en radianes. Lo escriben y leen los `useFrame`. */
@@ -691,9 +793,18 @@ export function RotorFemPage() {
         [mode, gravityAngles]
     );
 
-    /** Peso del caso tangencial: α relativo al caso unitario, a pasos del 10 %. */
+    /**
+     * Qué se pinta: el módulo (0..100 %) o la componente axial con signo
+     * (−100 % compresión ↔ +100 % tracción).
+     */
+    const [field, setField] = useState<'magnitude' | 'signed'>('magnitude');
+    /**
+     * Peso del caso tangencial: α relativo al caso unitario, **con signo**.
+     * Acelerar y frenar deforman la pala en sentidos opuestos; quedarse con el
+     * módulo los hacía indistinguibles.
+     */
     const tangentialWeight = useMemo(
-        () => Math.round((Math.abs(alpha) / ALPHA_REF) * 10) / 10,
+        () => Math.round((alpha / ALPHA_REF) * 20) / 20,
         [alpha]
     );
     const [colourScale, setColourScale] = useState<number | null>(null);
@@ -707,10 +818,13 @@ export function RotorFemPage() {
     );
 
     /**
-     * Escala fija del mapa de color por modo: el valor que se pinta como rojo.
+     * Escala del mapa: **el 100 % es el caso de referencia**, no el máximo del modo.
      *
-     * Centrífuga y tangencial se escalan al máximo del deslizador (5×) y gravedad a
-     * la suma de los tres casos (que es el máximo teórico al 100 % en cada eje).
+     * Un caso unitario del FEM es la carga de referencia, y un factor de carga puede
+     * salirse de él en los dos sentidos: la centrífuga va con ω², así que a 5× son
+     * 500 % (y satura en rojo), y la tangencial pasa de negativo a positivo según
+     * acelere o frene. Normalizar al máximo del deslizador, que era lo que hacía
+     * antes, escondía justo esa información.
      */
     const paintScale = useMemo(() => {
         const data = bake.data;
@@ -720,11 +834,10 @@ export function RotorFemPage() {
             if (!entry) return 0;
             return Math.max(0, ...Object.values(entry.peaks));
         };
-        if (mode === 'centripetal') return 5 * casePeak('blade-centripetal');
-        if (mode === 'tangential') return 4 * casePeak('blade-tangential');
+        if (mode === 'centripetal') return casePeak('blade-centripetal');
+        if (mode === 'tangential') return casePeak('blade-tangential');
         if (mode === 'gravity') {
-            // El reparto es de |g| = 1 entre los tres ejes, así que el pico de una
-            // pala no pasa del mayor de los tres casos (más el cruce de cosenos).
+            // Los cosenos reparten |g| = 1, así que aquí no se pasa del mayor caso.
             return Math.max(casePeak('blade-x'), casePeak('blade-y'), casePeak('blade-z'));
         }
         return caseName ? casePeak(caseName) : 0;
@@ -901,12 +1014,14 @@ export function RotorFemPage() {
             unpaintBlades(gltf);
             setPainted({ painted: 0, reason: null });
             setPaintedPeak(0);
+            setPaintedRange([0, 0]);
             return;
         }
-        const result = paintBlades(gltf, bake.data, weightFor, colourScale ?? paintScale);
+        const result = paintBlades(gltf, bake.data, weightFor, colourScale ?? paintScale, field);
         setPainted({ painted: result.painted, reason: result.reason });
         setPaintedPeak(result.peak);
-    }, [gltf, paint, bake.data, weightFor, paintScale, colourScale]);
+        setPaintedRange([result.min, result.max]);
+    }, [gltf, paint, bake.data, weightFor, paintScale, colourScale, field]);
 
     // Al cambiar de gemelo (o desmontar) hay que devolver los materiales del anterior.
     useEffect(() => {
@@ -918,7 +1033,7 @@ export function RotorFemPage() {
     useEffect(() => {
         if (!gltf) return;
         applyTwinOpacity(gltf, twinOpacity);
-    }, [gltf, twinOpacity, paint, bake.data, weightFor, paintScale, colourScale]);
+    }, [gltf, twinOpacity, paint, bake.data, weightFor, paintScale, colourScale, field]);
 
     const residual = bake.data?.blades.base?.icp;
 
@@ -1020,12 +1135,13 @@ export function RotorFemPage() {
                                     </label>
                                     <p className="text-[10px] leading-relaxed text-slate-600">
                                         Carga triangular (0 en el buje, 1 en la punta) escalada por
-                                        ω²·r. Referencia a 1 m/s² en la punta: ω ≈{' '}
+                                        ω²·r. El 100 % del color es el caso unitario: ω ≈{' '}
                                         <span className="font-mono text-slate-400">
                                             {(OMEGA_REF * Math.sqrt(amplification)).toFixed(2)} rad/s
                                         </span>{' '}
                                         ({((OMEGA_REF * Math.sqrt(amplification) * 60) / (2 * Math.PI)).toFixed(1)}{' '}
-                                        rpm). 5× es el máximo que se puede pintar.
+                                        rpm). Como va con ω², a 5× son <strong>500 %</strong> y el
+                                        mapa satura.
                                     </p>
                                 </div>
                             ) : null}
@@ -1070,7 +1186,9 @@ export function RotorFemPage() {
                                         repetir el arranque (ω = 0)
                                     </button>
                                     <p className="text-[10px] leading-relaxed text-slate-600">
-                                        ω actual{' '}
+                                        Acelerar y frenar son cargas <strong>opuestas</strong>: α &gt; 0
+                                        va en un sentido y α &lt; 0 en el contrario, así que en el mapa
+                                        con signo uno sale cálido y el otro frío. ω actual{' '}
                                         <span className="font-mono text-slate-400">{omega.toFixed(2)} rad/s</span> · α
                                         = Δω/τ{' '}
                                         <span className="font-mono text-slate-400">
@@ -1165,6 +1283,57 @@ export function RotorFemPage() {
                                     </span>
                                 </label>
                             ) : null}
+                            <div className="mt-2">
+                                <div className="flex flex-wrap gap-1">
+                                    {(
+                                        [
+                                            ['magnitude', 'módulo |u|'],
+                                            ['signed', 'con signo ±'],
+                                        ] as const
+                                    ).map(([id, label]) => (
+                                        <button
+                                            key={id}
+                                            type="button"
+                                            onClick={() => setField(id)}
+                                            className={`rounded border px-2 py-1 text-[10px] transition ${
+                                                field === id
+                                                    ? 'border-sky-400/60 bg-sky-400/10 text-slate-100'
+                                                    : 'border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.07]'
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {field === 'signed' ? (
+                                    <>
+                                        <div className="mt-1 flex items-center gap-1 pt-1">
+                                            <span className="h-2 flex-1 rounded-l bg-[hsl(216,85%,52%)]" />
+                                            <span className="h-2 flex-1 bg-[hsl(216,25%,80%)]" />
+                                            <span className="h-2 flex-1 bg-[hsl(0,25%,80%)]" />
+                                            <span className="h-2 flex-1 rounded-r bg-[hsl(0,85%,52%)]" />
+                                        </div>
+                                        <p className="text-[10px] text-slate-600">
+                                            −100 % · 0 · +100 % (100 % = caso unitario)
+                                        </p>
+                                        <p className="text-[10px] text-slate-600">
+                                            el campo va de{' '}
+                                            <span className="font-mono text-slate-400">
+                                                {formatMetres(paintedRange[0])}
+                                            </span>{' '}
+                                            a{' '}
+                                            <span className="font-mono text-slate-400">
+                                                {formatMetres(paintedRange[1])}
+                                            </span>
+                                        </p>
+                                    </>
+                                ) : (
+                                    <p className="mt-1 text-[10px] text-slate-600">
+                                        0 % → {formatMetres(colourScale ?? paintScale)} (100 % = caso
+                                        unitario; por encima satura)
+                                    </p>
+                                )}
+                            </div>
                             <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
                                 <dt>pico pintado</dt>
                                 <dd className="text-right font-mono text-slate-300">

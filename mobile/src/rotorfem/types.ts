@@ -77,6 +77,8 @@ export interface BladeBake {
             nodes: string[];
             vertexCount: number;
             primitives: BladePrimitive[];
+            /** Eje largo de la pala (unitario, en el frame del `.glb`). */
+            axis: [number, number, number];
             icp: {
                 median: number;
                 p95: number;
@@ -93,6 +95,15 @@ export interface BladeBake {
             /** 60.200 bytes por pala, en base64, en el orden de `blades[x].primitives`. */
             values: Record<string, string>;
             farNeighbour: Record<string, number>;
+            /**
+             * Componentes con signo de los casos de gravedad (`blade-x/y/z`), en
+             * base64 de `int8`. Sin ellos no se pueden superponer cargas: sumar
+             * módulos no es lo mismo, y con pesos negativos ni siquiera está
+             * definido.
+             */
+            vectors: Record<string, { x: string; y: string; z: string }>;
+            /** Valor real (m) que corresponde al 127 de cada componente. */
+            vectorPeaks: Record<string, number>;
         }
     >;
 }
