@@ -146,7 +146,7 @@ const OMEGA_REF = Math.sqrt(REFERENCE_ACCEL / BLADE_TIP_M);
 /** α que da 1 m/s² tangencial en la punta: α = a/r ≈ 1,59 rad/s². */
 const ALPHA_REF = REFERENCE_ACCEL / BLADE_TIP_M;
 
-export type LoadMode = 'unit' | 'centripetal' | 'tangential' | 'gravity';
+export type LoadMode = 'unit' | 'centripetal' | 'tangential' | 'gravity' | 'all';
 
 /** Metros a la unidad que toque: las escalas van de nanómetros a micrómetros. */
 function formatMetres(value: number): string {
@@ -1013,7 +1013,7 @@ export function RotorFemPage() {
     // su reparto de carga: hay que volver a pintar. A 9 Hz basta para que se vea el
     // barrido sin repintar 180.000 vértices sesenta veces por segundo.
     useEffect(() => {
-        if (mode !== 'gravity') return;
+        if (mode !== 'gravity' && mode !== 'all') return;
         // Al entrar hay que sincronizar: el rotor puede venir girando de otro modo,
         // y si el reparto arranca en 0 no coincide con la posición que se ve.
         setSpinAngle(spinRef.current);
@@ -1083,6 +1083,16 @@ export function RotorFemPage() {
             // Los cosenos reparten |g| = 1, así que aquí no se pasa del mayor caso.
             return Math.max(casePeak('blade-x'), casePeak('blade-y'), casePeak('blade-z'));
         }
+        if (mode === 'all') {
+            // La referencia es el mayor de los cinco, que es la tangencial.
+            return Math.max(
+                casePeak('blade-centripetal'),
+                casePeak('blade-tangential'),
+                casePeak('blade-x'),
+                casePeak('blade-y'),
+                casePeak('blade-z')
+            );
+        }
         return caseName ? casePeak(caseName) : 0;
     }, [bake.data, mode, caseName]);
 
@@ -1115,6 +1125,23 @@ export function RotorFemPage() {
             if (mode === 'unit') return caseName ? { [caseName]: 1 } : NO_WEIGHTS;
             if (mode === 'centripetal') return { 'blade-centripetal': amplification };
             if (mode === 'tangential') return { 'blade-tangential': tangentialWeight };
+            if (mode === 'all') {
+                // Los cinco a la vez: gravedad por cosenos, centrífuga por (ω/ω_ref)²
+                // (que es la aceleración radial en la punta) y tangencial por α.
+                const icp = bake.data?.blades[bladeName]?.icp;
+                const gravedad = bladeGravityWeights(
+                    gravityAngles,
+                    spinAngle,
+                    icp?.rotation ?? null
+                );
+                return {
+                    'blade-centripetal': Math.pow(omega / OMEGA_REF, 2),
+                    'blade-tangential': tangentialWeight,
+                    'blade-x': gravedad['blade-x'],
+                    'blade-y': gravedad['blade-y'],
+                    'blade-z': gravedad['blade-z'],
+                };
+            }
             // Cada pala lleva su propia matriz FEM → .glb, así que el reparto no
             // necesita el acimut: se coge la gravedad del mundo, se pasa al sistema
             // de la plataforma, se gira lo que haya girado el rotor y se proyecta
@@ -1283,6 +1310,14 @@ export function RotorFemPage() {
         else if (mode === 'tangential') max = peakOf('blade-tangential');
         else if (mode === 'gravity') {
             max = Math.max(peakOf('blade-x'), peakOf('blade-y'), peakOf('blade-z'));
+        } else if (mode === 'all') {
+            // Cota superior: los cinco casos son vectores como mucho paralelos.
+            max =
+                peakOf('blade-centripetal') +
+                peakOf('blade-tangential') +
+                peakOf('blade-x') +
+                peakOf('blade-y') +
+                peakOf('blade-z');
         }
         return { min: field === 'signed' ? -max : 0, max };
     }, [bake.data, mode, caseName, field]);
@@ -1411,6 +1446,7 @@ export function RotorFemPage() {
                                         ['centripetal', 'centrífuga'],
                                         ['tangential', 'tangencial'],
                                         ['gravity', 'gravedad xyz'],
+                                        ['all', 'all'],
                                     ] as const
                                 ).map(([id, label]) => (
                                     <button
@@ -1485,7 +1521,7 @@ export function RotorFemPage() {
                                 </div>
                             ) : null}
 
-                            {mode === 'tangential' ? (
+                            {(mode === 'tangential' || mode === 'all') ? (
                                 <div className="mt-2 space-y-1">
                                     <label className="flex items-center gap-2 text-[11px] text-slate-400">
                                         <span className="w-20 shrink-0">ω objetivo</span>
@@ -1540,7 +1576,7 @@ export function RotorFemPage() {
                                 </div>
                             ) : null}
 
-                            {mode === 'gravity' ? (
+                            {mode === 'gravity' || mode === 'all' ? (
                                 <div className="mt-2 space-y-1">
                                     {(['balanceo', 'cabeceo', 'guiñada'] as const).map((label, axis) => (
                                         <label
@@ -1569,6 +1605,7 @@ export function RotorFemPage() {
                                             </span>
                                         </label>
                                     ))}
+                                    {mode === 'gravity' ? (
                                     <label className="flex items-center gap-2 text-[11px] text-slate-400">
                                         <span className="w-20 shrink-0">ω del rotor</span>
                                         <input
@@ -1584,11 +1621,16 @@ export function RotorFemPage() {
                                             {gravityOmega.toFixed(2)}
                                         </span>
                                     </label>
+                                    ) : null}
                                     <p className="text-[10px] leading-relaxed text-slate-600">
                                         La plataforma se inclina y la flecha cian marca la vertical del
                                         mundo. Con ω &gt; 0 el rotor gira y <strong>cada pala ve otra
                                             gravedad</strong>, así que el mapa cambia mientras barre
-                                        (desfase de 120°). Cosenos por pala:{' '}
+                                        (desfase de 120°).{' '}
+                                        {mode === 'all'
+                                            ? 'Aquí además se suman la centrífuga y la tangencial.'
+                                            : ''}{' '}
+                                        Cosenos por pala:{' '}
                                         {bladeNames.map((name) => {
                                             const pesos = weightFor(name);
                                             const detalle = (['blade-x', 'blade-y', 'blade-z'] as const)
@@ -1605,7 +1647,10 @@ export function RotorFemPage() {
                                 </div>
                             ) : null}
 
-                            {mode === 'centripetal' || mode === 'tangential' || mode === 'gravity' ? (
+                            {mode === 'centripetal' ||
+                            mode === 'tangential' ||
+                            mode === 'gravity' ||
+                            mode === 'all' ? (
                                 <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
                                     <span className="w-20 shrink-0">giro visual</span>
                                     <input
