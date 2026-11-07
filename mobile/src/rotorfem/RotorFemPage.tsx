@@ -230,9 +230,19 @@ function paintBlades(
     scene: THREE.Object3D,
     bake: BladeBake,
     weightFor: (bladeName: string) => Weights,
-    scale: number,
+    range: { min: number; max: number } | null,
     field: 'magnitude' | 'signed'
-): { painted: number; reason: string | null; peak: number; min: number; max: number } {
+): {
+    painted: number;
+    reason: string | null;
+    peak: number;
+    /** Rango real del campo (lo que hay, sin escalar). */
+    min: number;
+    max: number;
+    /** Extremos usados para el color: los forzados o los reales. */
+    scaleMin: number;
+    scaleMax: number;
+} {
     // three.js **sanea** los nombres al cargar el glTF (`MeshBody1 (2)` llega como
     // `MeshBody1_(2)`), así que no se puede buscar por el nombre del fichero: se
     // comparan las dos cadenas sin espacios ni signos.
@@ -325,12 +335,30 @@ function paintBlades(
         valores.set(bladeName, salida);
     }
 
-    if (!algunActivo) return { painted: 0, reason: 'ningún caso activo', peak: 0, min: 0, max: 0 };
-    // La escala del color **no** se normaliza con el pico del momento: si no, mover
-    // el deslizador no cambiaría nada (el máximo siempre saldría rojo). Se fija al
-    // caso de referencia (100 %), así que subir la carga **sí** enciende el mapa.
-    // Con todo a cero (α = 0) `peak` vale 0 pero se pinta igual: el campo existe.
-    const referencia = scale > 0 ? scale : peak > 0 ? peak : 1;
+    if (!algunActivo) {
+        return {
+            painted: 0,
+            reason: 'ningún caso activo',
+            peak: 0,
+            min: 0,
+            max: 0,
+            scaleMin: 0,
+            scaleMax: 0,
+        };
+    }
+    // Extremos del color: los que fije el usuario o, por defecto, **el rango real
+    // del campo que se acaba de calcular**. Así cada análisis (x, y, z, centrífuga,
+    // tangencial) se ve con su propia escala y no con un múltiplo del caso unitario
+    // que dejaba medio mapa pegado al gris.
+    const scaleMin = range?.min ?? Math.min(min, 0);
+    const scaleMax = range?.max ?? max;
+    const abajo = scaleMin < 0 ? Math.abs(scaleMin) : 0;
+    /** Divergente: −1 en `scaleMin`, 0 en el cero del campo, +1 en `scaleMax`. */
+    const normSigned = (value: number) =>
+        value >= 0 ? (scaleMax > 0 ? value / scaleMax : 0) : abajo > 0 ? value / abajo : 0;
+    const span = scaleMax - scaleMin;
+    /** Secuencial: 0 en `scaleMin`, 1 en `scaleMax`. */
+    const normLinear = (value: number) => (span > 0 ? (value - scaleMin) / span : 0);
 
     let painted = 0;
     for (const [bladeName, blade] of Object.entries(bake.blades)) {
@@ -343,7 +371,17 @@ function paintBlades(
             offset += primitive.count;
 
             const object = byName.get(normalize(primitive.name));
-            if (!object) return { painted, reason: `no encuentro el nodo «${primitive.name}»`, peak, min, max };
+            if (!object) {
+                return {
+                    painted,
+                    reason: `no encuentro el nodo «${primitive.name}»`,
+                    peak,
+                    min,
+                    max,
+                    scaleMin,
+                    scaleMax,
+                };
+            }
 
             const meshes: THREE.Mesh[] = [];
             object.traverse((child) => {
@@ -351,7 +389,15 @@ function paintBlades(
             });
             const mesh = meshes[primitive.primitive];
             if (!mesh || Array.isArray(mesh.material)) {
-                return { painted, reason: `«${primitive.name}» no es una malla simple`, peak, min, max };
+                return {
+                    painted,
+                    reason: `«${primitive.name}» no es una malla simple`,
+                    peak,
+                    min,
+                    max,
+                    scaleMin,
+                    scaleMax,
+                };
             }
             const runtime = mesh.geometry.attributes.position.count;
             if (runtime !== primitive.count) {
@@ -361,6 +407,8 @@ function paintBlades(
                     peak,
                     min,
                     max,
+                    scaleMin,
+                    scaleMax,
                 };
             }
 
@@ -375,7 +423,8 @@ function paintBlades(
             const array = colours.array as Float32Array;
             const colour = new THREE.Color();
             for (let index = 0; index < primitive.count; index += 1) {
-                const normalized = slice[index] / referencia;
+                const normalized =
+                    field === 'signed' ? normSigned(slice[index]) : normLinear(slice[index]);
                 if (field === 'signed') colourForSigned(normalized, colour);
                 else colourFor(normalized, colour);
                 array[index * 3] = colour.r;
@@ -402,7 +451,7 @@ function paintBlades(
             painted += 1;
         }
     }
-    return { painted, reason: null, peak, min, max };
+    return { painted, reason: null, peak, min, max, scaleMin, scaleMax };
 }
 
 /** Quita el color y devuelve los materiales originales. */
@@ -729,9 +778,13 @@ export function RotorFemPage() {
      * repinta las palas.
      */
     const [spinAngle, setSpinAngle] = useState(0);
-    const [paintedPeak, setPaintedPeak] = useState(0);
-    /** Rango real del campo pintado (m), para enseñar cuánto se sale del mapa. */
-    const [paintedRange, setPaintedRange] = useState<[number, number]>([0, 0]);
+    /** Rango **real** del campo (m). Es la escala automática del colorbar. */
+    const [autoRange, setAutoRange] = useState<[number, number]>([0, 0]);
+    /**
+     * Extremos forzados del colorbar (m). `null` = automático, que es lo normal: el
+     * máximo y el mínimo del propio análisis. Se fijan moviendo las manijas.
+     */
+    const [scaleRange, setScaleRange] = useState<{ min: number; max: number } | null>(null);
     const [anchor, setAnchor] = useState<Anchor>(DEFAULT_ANCHOR);
 
     /** Ángulo girado del rotor, en radianes. Lo escriben y leen los `useFrame`. */
@@ -832,6 +885,12 @@ export function RotorFemPage() {
         [alpha]
     );
     const [colourScale, setColourScale] = useState<number | null>(null);
+
+    // Cada análisis tiene su propia escala: al cambiar de modo o de campo se vuelve
+    // a la automática en vez de arrastrar la del anterior.
+    useEffect(() => {
+        setScaleRange(null);
+    }, [mode, field, twinFile]);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
     const index = useJson<FemIndex>(`${FEM_BASE}/index.json`);
@@ -1000,6 +1059,17 @@ export function RotorFemPage() {
 
     const peak = colourScale ?? paintScale ?? current.data?.stats.max ?? 1;
 
+    /**
+     * Extremos del colorbar: los forzados o los reales del campo.
+     *
+     * Para el campo con signo el mínimo se recorta a 0 cuando el campo es todo
+     * positivo, de forma que el azul ocupa su mitad solo si hay algo que enseñar.
+     */
+    const escalaMin = scaleRange?.min ?? Math.min(autoRange[0], 0);
+    const escalaMax = scaleRange?.max ?? autoRange[1];
+    const factorMin = autoRange[0] < 0 ? escalaMin / autoRange[0] : 1;
+    const factorMax = autoRange[1] > 0 ? escalaMax / autoRange[1] : 1;
+
     // Pintar el gemelo: se quita siempre antes, para que cambiar de caso o
     // apagar la casilla no deje colores viejos pegados.
     useEffect(() => {
@@ -1010,15 +1080,18 @@ export function RotorFemPage() {
             // repintar mientras el rotor gira.
             unpaintBlades(gltf);
             setPainted({ painted: 0, reason: null });
-            setPaintedPeak(0);
-            setPaintedRange([0, 0]);
             return;
         }
-        const result = paintBlades(gltf, bake.data, weightFor, colourScale ?? paintScale, field);
+        const result = paintBlades(gltf, bake.data, weightFor, scaleRange, field);
         setPainted({ painted: result.painted, reason: result.reason });
-        setPaintedPeak(result.peak);
-        setPaintedRange([result.min, result.max]);
-    }, [gltf, paint, bake.data, weightFor, paintScale, colourScale, field]);
+        // Solo se guarda si cambia de verdad: esto se ejecuta a 9 Hz mientras gira y
+        // un `setState` por tick con el mismo valor dispara renders para nada.
+        setAutoRange((previous) =>
+            Math.abs(previous[0] - result.min) > 1e-13 || Math.abs(previous[1] - result.max) > 1e-13
+                ? [result.min, result.max]
+                : previous
+        );
+    }, [gltf, paint, bake.data, weightFor, scaleRange, field]);
 
     // Al cambiar de gemelo (o desmontar) hay que devolver los materiales del anterior.
     useEffect(() => {
@@ -1030,7 +1103,7 @@ export function RotorFemPage() {
     useEffect(() => {
         if (!gltf) return;
         applyTwinOpacity(gltf, twinOpacity);
-    }, [gltf, twinOpacity, paint, bake.data, weightFor, paintScale, colourScale, field]);
+    }, [gltf, twinOpacity, paint, bake.data, weightFor, scaleRange, field]);
 
     const residual = bake.data?.blades.base?.icp;
 
@@ -1310,89 +1383,100 @@ export function RotorFemPage() {
                                         </button>
                                     ))}
                                 </div>
+                                {/* Colorbar con sus dos extremos. Para el campo con signo
+                                    el cero va en medio, y el azul y el rojo se escalan por
+                                    separado (cada uno con su manija). */}
                                 {field === 'signed' ? (
-                                    <>
-                                        <div className="mt-1 flex items-center gap-1 pt-1">
-                                            <span className="h-2 flex-1 rounded-l bg-[hsl(216,85%,52%)]" />
-                                            <span className="h-2 flex-1 bg-[hsl(216,25%,80%)]" />
-                                            <span className="h-2 flex-1 bg-[hsl(0,25%,80%)]" />
-                                            <span className="h-2 flex-1 rounded-r bg-[hsl(0,85%,52%)]" />
-                                        </div>
-                                        <p className="text-[10px] text-slate-600">
-                                            −100 % · 0 · +100 % (100 % = caso unitario)
-                                        </p>
-                                        <p className="text-[10px] text-slate-600">
-                                            el campo va de{' '}
-                                            <span className="font-mono text-slate-400">
-                                                {formatMetres(paintedRange[0])}
-                                            </span>{' '}
-                                            a{' '}
-                                            <span className="font-mono text-slate-400">
-                                                {formatMetres(paintedRange[1])}
-                                            </span>
-                                        </p>
-                                    </>
+                                    <div className="mt-1 flex items-center gap-1 pt-1">
+                                        <span className="h-2 flex-1 rounded-l bg-[hsl(216,85%,52%)]" />
+                                        <span className="h-2 flex-1 bg-[hsl(216,25%,80%)]" />
+                                        <span className="h-2 flex-1 bg-[hsl(0,25%,80%)]" />
+                                        <span className="h-2 flex-1 rounded-r bg-[hsl(0,85%,52%)]" />
+                                    </div>
                                 ) : (
-                                    <p className="mt-1 text-[10px] text-slate-600">
-                                        0 % → {formatMetres(colourScale ?? paintScale)} (100 % = caso
-                                        unitario; por encima satura)
-                                    </p>
+                                    <div className="mt-1 flex items-center gap-1 pt-1">
+                                        <span className="h-2 flex-1 rounded-l bg-[hsl(238,85%,50%)]" />
+                                        <span className="h-2 flex-1 bg-[hsl(178,85%,50%)]" />
+                                        <span className="h-2 flex-1 bg-[hsl(119,85%,50%)]" />
+                                        <span className="h-2 flex-1 bg-[hsl(60,85%,50%)]" />
+                                        <span className="h-2 flex-1 rounded-r bg-[hsl(0,85%,50%)]" />
+                                    </div>
                                 )}
+                                <div className="flex justify-between font-mono text-[10px] text-slate-500">
+                                    <span>{formatMetres(escalaMin)}</span>
+                                    <span>{formatMetres(escalaMax)}</span>
+                                </div>
 
-                                {/* Escala manual del color: el 100 % es el caso de
-                                    referencia, así que aquí se elige cuántos % pinta el
-                                    rojo. Va en escala logarítmica porque interesa de
-                                    10 % a 2000 %. */}
+                                {/* Las dos manijas: la izquierda fija el azul, la derecha el
+                                    rojo. Van en múltiplo del rango real, que es el valor
+                                    automático. */}
                                 <label className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
-                                    <span className="w-20 shrink-0">escala</span>
+                                    <span className="w-14 shrink-0 text-sky-400">azul</span>
                                     <input
                                         type="range"
-                                        min={-1}
-                                        max={1.3}
-                                        step={0.02}
-                                        value={Math.log10(
-                                            paintScale > 0
-                                                ? (colourScale ?? paintScale) / paintScale
-                                                : 1
-                                        )}
+                                        min={0.1}
+                                        max={4}
+                                        step={0.05}
+                                        disabled={!(autoRange[0] < 0)}
+                                        value={factorMin}
                                         onChange={(event) =>
-                                            setColourScale(
-                                                paintScale *
-                                                    Math.pow(10, Number(event.target.value))
-                                            )
+                                            setScaleRange({
+                                                min: autoRange[0] * Number(event.target.value),
+                                                max: escalaMax,
+                                            })
                                         }
-                                        className="flex-1"
+                                        className="flex-1 disabled:opacity-30"
                                     />
-                                    <span className="w-14 text-right font-mono text-slate-300">
-                                        {paintScale > 0
-                                            ? `${Math.round(((colourScale ?? paintScale) / paintScale) * 100)} %`
-                                            : '—'}
+                                    <span className="w-16 text-right font-mono text-slate-300">
+                                        {autoRange[0] < 0 ? formatMetres(escalaMin) : '—'}
+                                    </span>
+                                </label>
+                                <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                                    <span className="w-14 shrink-0 text-rose-400">rojo</span>
+                                    <input
+                                        type="range"
+                                        min={0.1}
+                                        max={4}
+                                        step={0.05}
+                                        disabled={!(autoRange[1] > 0)}
+                                        value={factorMax}
+                                        onChange={(event) =>
+                                            setScaleRange({
+                                                min: escalaMin,
+                                                max: autoRange[1] * Number(event.target.value),
+                                            })
+                                        }
+                                        className="flex-1 disabled:opacity-30"
+                                    />
+                                    <span className="w-16 text-right font-mono text-slate-300">
+                                        {autoRange[1] > 0 ? formatMetres(escalaMax) : '—'}
+                                    </span>
+                                </label>
+                                <div className="mt-1 flex items-center justify-between text-[10px] text-slate-600">
+                                    <span>
+                                        escala {scaleRange === null ? 'automática' : 'manual'} · 100 % =
+                                        caso unitario ={' '}
+                                        <span className="font-mono">{formatMetres(paintScale)}</span>
                                     </span>
                                     <button
                                         type="button"
-                                        onClick={() => setColourScale(null)}
+                                        onClick={() => setScaleRange(null)}
                                         className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-white/[0.07]"
                                     >
                                         auto
                                     </button>
-                                </label>
+                                </div>
                             </div>
                             <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
-                                <dt>pico pintado</dt>
+                                <dt>mín / máx real</dt>
                                 <dd className="text-right font-mono text-slate-300">
-                                    {formatMetres(paintedPeak)}
+                                    {formatMetres(autoRange[0])} … {formatMetres(autoRange[1])}
                                 </dd>
-                                <dt>escala del color</dt>
+                                <dt>vs caso unitario</dt>
                                 <dd className="text-right font-mono text-slate-300">
-                                    {formatMetres(colourScale ?? paintScale)}
-                                </dd>
-                                <dt>saturación</dt>
-                                <dd className="text-right font-mono text-slate-300">
-                                    {(() => {
-                                        const tope = colourScale ?? paintScale;
-                                        if (!(tope > 0)) return '—';
-                                        return `${Math.round((paintedPeak / tope) * 100)}%`;
-                                    })()}
+                                    {paintScale > 0
+                                        ? `${Math.round((Math.max(Math.abs(autoRange[0]), autoRange[1]) / paintScale) * 100)} %`
+                                        : '—'}
                                 </dd>
                             </dl>
                             {current.error ? (
