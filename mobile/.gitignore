@@ -45,3 +45,8 @@ models/*.zip
 server/data/
 *.log
 logs
+
+# Casos GiD del rotor: 174 MB de entrada, no se versionan. Lo que sí se versiona
+# es su conversión a `public/rotor-fem/*.json` (~1,3 MB), que es lo que lee la
+# página /rotor-fem. Se regeneran con `npm run fem:json`.
+fem/

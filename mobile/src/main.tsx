@@ -4,6 +4,7 @@ import App from './App';
 import { BenchPage } from './bench/BenchPage';
 import { PublicBenchPage } from './bench/PublicBenchPage';
 import { ModelInfoPage } from './modelinfo/ModelInfoPage';
+import { RotorFemPage } from './rotorfem/RotorFemPage';
 import { useAppStore } from './store/appStore';
 import './index.css';
 
@@ -51,6 +52,19 @@ const modelInfo =
 
 if (modelInfo) document.documentElement.classList.add('oc4-scroll');
 
+/**
+ * Calibración de la malla FEM del rotor, en `/rotor-fem/` (y `?rotorfem=1`).
+ *
+ * Es una herramienta, no una pantalla de la app: superpone la pala mallada en
+ * GiD sobre el gemelo para encontrar el anclaje. Los datos salen de
+ * `scripts/fem-to-json.py`.
+ */
+const rotorFem =
+    new URLSearchParams(window.location.search).has('rotorfem') ||
+    /\/rotor-fem\/?$/.test(window.location.pathname);
+
+if (rotorFem) document.documentElement.classList.add('oc4-scroll');
+
 const container = document.getElementById('root');
 if (!container) throw new Error('Falta el elemento #root en index.html');
 
@@ -58,6 +72,8 @@ createRoot(container).render(
     <StrictMode>
         {modelInfo ? (
             <ModelInfoPage />
+        ) : rotorFem ? (
+            <RotorFemPage />
         ) : publicBench ? (
             <PublicBenchPage />
         ) : bench ? (

@@ -55,6 +55,22 @@ npm start               # build + node server/index.mjs --serve-dist
 - **[DEPLOY.md](DEPLOY.md)** — local, Docker, VPS con nginx en subpath, y qué
   assets no están en el repo.
 
+## Herramienta: `/rotor-fem/`
+
+Calibración de la malla FEM de la pala sobre el gemelo. Superpone la pala mallada
+en GiD (tres copias a 120°) con un mapa de color de `|u|` y deja mover el anclaje
+(centro, giro, radio y acimut) hasta que encaje con el `.glb`. Incluye un árbol de
+los nodos del modelo para colocar el ancla de un clic.
+
+```bash
+npm run fem:json        # mobile/fem/*.gid -> public/rotor-fem/*.json
+npm run dev             # http://localhost:5273/rotor-fem/
+```
+
+Los casos `.gid` son la entrada (174 MB, no versionados); los JSON son lo que sirve
+la página (~1,3 MB, sí versionados). Ver el docstring de
+`scripts/fem-to-json.py` para el formato y para la normalización de ejes.
+
 ## Probar en el móvil (y por qué a veces "no hay cámara")
 
 `getUserMedia` **sólo existe en orígenes seguros**: `https://` o

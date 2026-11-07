@@ -1,0 +1,36 @@
+{
+ "reference": "blade-centripetal",
+ "mesh": "mesh.json",
+ "cases": [
+  {
+   "case": "blade-centripetal",
+   "nodeCount": 11226,
+   "max": 8.994538014943893e-09,
+   "p95": 8.984751376779789e-09
+  },
+  {
+   "case": "blade-tangential",
+   "nodeCount": 11226,
+   "max": 5.154161122954431e-06,
+   "p95": 5.1541106761830215e-06
+  },
+  {
+   "case": "blade-x",
+   "nodeCount": 11226,
+   "max": 4.518510972872624e-07,
+   "p95": 4.518443753110749e-07
+  },
+  {
+   "case": "blade-y",
+   "nodeCount": 11226,
+   "max": 2.433778053783884e-07,
+   "p95": 2.433596149538306e-07
+  },
+  {
+   "case": "blade-z",
+   "nodeCount": 11226,
+   "max": 1.5482605825153531e-09,
+   "p95": 1.545365352503187e-09
+  }
+ ]
+}
