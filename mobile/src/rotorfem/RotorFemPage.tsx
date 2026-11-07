@@ -13,7 +13,7 @@
  * Los datos los genera `scripts/fem-to-json.py`; aquí solo se pintan.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { Grid, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -107,6 +107,9 @@ function formatMetres(value: number): string {
 
 /** Peso de cada caso base (nombre del JSON) en el mapa que se pinta. */
 export type Weights = Record<string, number>;
+
+/** Ref muda para el giro: se lee en `useFrame`, no dispara renders. */
+type SpinRef = { current: number };
 
 /**
  * Reparto de la gravedad entre los casos `x`, `y` y `z`.
@@ -354,6 +357,7 @@ function Blades({
     opacity,
     colourScale,
     visible,
+    spin,
 }: {
     mesh: FemMesh;
     magnitudes: number[];
@@ -362,6 +366,8 @@ function Blades({
     opacity: number;
     colourScale: number;
     visible: boolean;
+    /** Ángulo girado del rotor en radianes (lo lleva `Rotor`). */
+    spin: SpinRef;
 }) {
     const rotation = anchor.rotation.map((degrees) => (degrees * Math.PI) / 180) as [
         number,
@@ -369,23 +375,35 @@ function Blades({
         number,
     ];
 
+    const girando = useRef<THREE.Group>(null);
+    // El giro se aplica por frame y no por estado: 60 renders por segundo solo
+    // para mover un grupo no aportan nada y arrastran a todo el árbol de React.
+    useFrame(() => {
+        if (girando.current) girando.current.rotation.z = spin.current;
+    });
+
     if (!visible) return null;
 
     return (
         <group position={anchor.position} rotation={rotation}>
-            {BLADE_OFFSETS.map((offset) => (
-                <group key={offset} rotation={[0, 0, ((anchor.azimuth + offset) * Math.PI) / 180]}>
-                    <group position={[anchor.radial, 0, 0]} rotation={BLADE_ORIENTATION}>
-                        <BladeGeometry
-                            mesh={mesh}
-                            magnitudes={magnitudes}
-                            wireframe={wireframe}
-                            opacity={opacity}
-                            colourScale={colourScale}
-                        />
+            <group ref={girando}>
+                {BLADE_OFFSETS.map((offset) => (
+                    <group
+                        key={offset}
+                        rotation={[0, 0, ((anchor.azimuth + offset) * Math.PI) / 180]}
+                    >
+                        <group position={[anchor.radial, 0, 0]} rotation={BLADE_ORIENTATION}>
+                            <BladeGeometry
+                                mesh={mesh}
+                                magnitudes={magnitudes}
+                                wireframe={wireframe}
+                                opacity={opacity}
+                                colourScale={colourScale}
+                            />
+                        </group>
                     </group>
-                </group>
-            ))}
+                ))}
+            </group>
             {/* Marcador del ancla: sin él no hay forma de saber dónde está el origen. */}
             <mesh>
                 <sphereGeometry args={[0.012, 16, 16]} />
@@ -399,6 +417,46 @@ function Blades({
 function Twin({ scene, visible }: { scene: THREE.Object3D | null; visible: boolean }) {
     if (!scene || !visible) return null;
     return <primitive object={scene} />;
+}
+
+/**
+ * Gira el rotor **del propio .glb** y acumula el ángulo que leen las aspas FEM.
+ *
+ * El nodo que hace de rotor se llama `rotate` en `OC4.glb` y `rotation` en
+ * `OC4-modal.glb`; en los dos su eje de giro es **Z** (las tres palas están
+ * repartidas en el plano XY, igual que en la malla FEM). Se rota en el espacio
+ * local del nodo, así que la orientación de reposo se respeta.
+ */
+function Rotor({ node, omega, spin }: { node: THREE.Object3D | null; omega: SpinRef; spin: SpinRef }) {
+    useFrame((_, delta) => {
+        const speed = omega.current;
+        if (!speed) return;
+        // Si la pestaña estuvo en segundo plano, `delta` llega enorme: el rotor
+        // daría un salto de varias vueltas.
+        spin.current += speed * Math.min(delta, 0.1);
+        if (!node) return;
+        const base = node.userData.__spinBase as number | undefined;
+        const origin = base ?? node.rotation.z;
+        if (base === undefined) node.userData.__spinBase = origin;
+        node.rotation.z = origin + spin.current;
+    });
+    return null;
+}
+
+/** Flecha de la vertical del mundo: sin ella no se ve que lo que se inclina es la plataforma. */
+function GravityVector() {
+    return (
+        <group position={[0, 1.5, 0]}>
+            <mesh position={[0, -0.25, 0]}>
+                <cylinderGeometry args={[0.005, 0.005, 0.5, 8]} />
+                <meshBasicMaterial color="#22d3ee" />
+            </mesh>
+            <mesh position={[0, -0.53, 0]} rotation={[Math.PI, 0, 0]}>
+                <coneGeometry args={[0.018, 0.06, 12]} />
+                <meshBasicMaterial color="#22d3ee" />
+            </mesh>
+        </group>
+    );
 }
 
 /* ---------------------------------------------------------------- interfaz */
@@ -522,6 +580,17 @@ export function RotorFemPage() {
     const [gravityAngles, setGravityAngles] = useState<[number, number, number]>([0, 0, 0]);
     const [paintedPeak, setPaintedPeak] = useState(0);
     const [anchor, setAnchor] = useState<Anchor>(DEFAULT_ANCHOR);
+
+    /** Ángulo girado del rotor, en radianes. Lo escriben y leen los `useFrame`. */
+    const spinRef = useRef(0);
+    /**
+     * Aceleración **solo visual** del giro. A 1× el rotor da 12 rpm (una vuelta
+     * cada 5 s), que es lo correcto pero se hace eterno mirarlo; el color y los
+     * números no cambian con esto.
+     */
+    const [spinGain, setSpinGain] = useState(1);
+    /** ω instantánea que se le da al rotor. En un ref para no re-renderizar. */
+    const omegaRef = useRef(0);
     const [wireframe, setWireframe] = useState(false);
     const [opacity, setOpacity] = useState(0.85);
     const [showTwin, setShowTwin] = useState(true);
@@ -556,11 +625,40 @@ export function RotorFemPage() {
         return () => window.clearInterval(timer);
     }, [mode, omegaTarget, inertia]);
 
+    /**
+     * ω con la que gira el rotor de la escena.
+     *
+     * En centrífuga es la que corresponde a la carga (ω = √(a/r)); en tangencial,
+     * la que persigue el deslizador. En los otros modos el rotor está parado.
+     */
+    useEffect(() => {
+        const fisica =
+            mode === 'tangential'
+                ? omega
+                : mode === 'centripetal'
+                  ? OMEGA_REF * Math.sqrt(amplification)
+                  : 0;
+        omegaRef.current = fisica * spinGain;
+    }, [mode, omega, amplification, spinGain]);
+
+    /** Inclinación de la plataforma; solo se aplica en el modo de gravedad. */
+    const platformRotation = useMemo(
+        () =>
+            (mode === 'gravity'
+                ? gravityAngles.map((degrees) => (degrees * Math.PI) / 180)
+                : [0, 0, 0]) as [number, number, number],
+        [mode, gravityAngles]
+    );
+
     /** Casos base que se combinan con qué peso, según el modo elegido. */
     const weights = useMemo<Weights>(() => {
         if (mode === 'unit') return caseName ? { [caseName]: 1 } : {};
         if (mode === 'centripetal') return { 'blade-centripetal': amplification };
-        if (mode === 'tangential') return { 'blade-tangential': Math.abs(alpha) / ALPHA_REF };
+        if (mode === 'tangential') {
+            // Cuantizado a pasos del 10 %: repintar 180.000 vértices por cada
+            // variación infinitesimal de α no se nota y se come el frame.
+            return { 'blade-tangential': Math.round((Math.abs(alpha) / ALPHA_REF) * 10) / 10 };
+        }
         return gravityWeights(gravityAngles);
     }, [mode, caseName, amplification, alpha, gravityAngles]);
     const [colourScale, setColourScale] = useState<number | null>(null);
@@ -595,6 +693,22 @@ export function RotorFemPage() {
         return caseName ? casePeak(caseName) : 0;
     }, [bake.data, mode, caseName]);
 
+
+    /**
+     * Nodo del .glb que hace de rotor: `rotate` en `OC4.glb` y `rotation` en
+     * `OC4-modal.glb`. Se busca por nombre normalizado porque three.js sanea los
+     * nombres al cargar.
+     */
+    const rotorNode = useMemo(() => {
+        if (!gltf) return null;
+        let found: THREE.Object3D | null = null;
+        gltf.traverse((child) => {
+            if (found) return;
+            const key = child.name.replace(/[^0-9a-z]/gi, '').toLowerCase();
+            if (key === 'rotate' || key === 'rotation') found = child;
+        });
+        return found;
+    }, [gltf]);
 
     // El `.glb` se carga a mano (no con `useGLTF`) porque el árbol vive **fuera**
     // del `<Canvas>`, y los hooks de R3F solo existen dentro.
@@ -892,7 +1006,9 @@ export function RotorFemPage() {
                                         </label>
                                     ))}
                                     <p className="text-[10px] leading-relaxed text-slate-600">
-                                        La gravedad se reparte entre los tres casos con los cosenos:{' '}
+                                        La plataforma se inclina en la escena y la flecha cian marca la
+                                        vertical del mundo. La gravedad se reparte entre los tres casos
+                                        con los cosenos:{' '}
                                         {(['blade-x', 'blade-y', 'blade-z'] as const)
                                             .map(
                                                 (name) =>
@@ -905,6 +1021,23 @@ export function RotorFemPage() {
                                 </div>
                             ) : null}
 
+                            {mode === 'centripetal' || mode === 'tangential' ? (
+                                <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                                    <span className="w-20 shrink-0">giro visual</span>
+                                    <input
+                                        type="range"
+                                        min={1}
+                                        max={8}
+                                        step={1}
+                                        value={spinGain}
+                                        onChange={(event) => setSpinGain(Number(event.target.value))}
+                                        className="flex-1"
+                                    />
+                                    <span className="w-12 text-right font-mono text-slate-300">
+                                        {spinGain}×
+                                    </span>
+                                </label>
+                            ) : null}
                             <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
                                 <dt>pico pintado</dt>
                                 <dd className="text-right font-mono text-slate-300">
@@ -1138,19 +1271,28 @@ export function RotorFemPage() {
                     <directionalLight position={[3, 6, 2]} intensity={1.6} />
                     <directionalLight position={[-3, 2, -4]} intensity={0.4} />
 
-                    <Twin scene={gltf} visible={showTwin} />
+                    {/* Toda la plataforma (torre + rotor) se inclina en el modo de
+                        gravedad; la rejilla y la flecha se quedan en el mundo para
+                        que se vea el escorado. */}
+                    <group rotation={platformRotation}>
+                        <Twin scene={gltf} visible={showTwin} />
 
-                    {bladeMesh && current.data ? (
-                        <Blades
-                            mesh={bladeMesh}
-                            magnitudes={current.data.magnitudes}
-                            anchor={anchor}
-                            wireframe={wireframe}
-                            opacity={opacity}
-                            colourScale={peak}
-                            visible={showBlades}
-                        />
-                    ) : null}
+                        {bladeMesh && current.data ? (
+                            <Blades
+                                mesh={bladeMesh}
+                                magnitudes={current.data.magnitudes}
+                                anchor={anchor}
+                                wireframe={wireframe}
+                                opacity={opacity}
+                                colourScale={peak}
+                                visible={showBlades}
+                                spin={spinRef}
+                            />
+                        ) : null}
+                    </group>
+
+                    <Rotor node={rotorNode} omega={omegaRef} spin={spinRef} />
+                    {mode === 'gravity' ? <GravityVector /> : null}
 
                     <Grid
                         args={[6, 6]}
