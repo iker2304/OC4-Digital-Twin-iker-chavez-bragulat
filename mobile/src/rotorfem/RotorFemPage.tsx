@@ -999,7 +999,7 @@ export function RotorFemPage() {
      */
     useEffect(() => {
         const fisica =
-            mode === 'tangential'
+            mode === 'tangential' || mode === 'all'
                 ? omega
                 : mode === 'centripetal'
                     ? OMEGA_REF * Math.sqrt(amplification)
@@ -1048,8 +1048,23 @@ export function RotorFemPage() {
 
     // Cada análisis tiene su propia escala: al cambiar de modo o de campo se vuelve
     // a la automática en vez de arrastrar la del anterior.
+    const autoRangeRef = useRef<[number, number]>([0, 0]);
+    useEffect(() => {
+        autoRangeRef.current = autoRange;
+    }, [autoRange]);
+
     useEffect(() => {
         setScaleRange(null);
+        if (mode !== 'all') return;
+        // En `all` la escala del análisis (suma de los cinco picos, 5,86 µm) es quince
+        // veces el campo típico y el mapa sale azul plano. Se **congela** el rango que
+        // hay al entrar, esperando a que el repintado del modo esté hecho: deja de
+        // depender del giro, pero el color se ve desde el principio.
+        const timer = window.setTimeout(() => {
+            const [lo, hi] = autoRangeRef.current;
+            if (hi > 0) setScaleRange({ min: Math.min(lo, 0), max: hi });
+        }, 450);
+        return () => window.clearTimeout(timer);
     }, [mode, field, twinFile]);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
