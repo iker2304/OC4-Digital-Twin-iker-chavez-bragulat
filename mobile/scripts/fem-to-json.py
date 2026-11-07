@@ -68,7 +68,9 @@ def read_dat(path: Path) -> tuple[list[int], np.ndarray, list[tuple[int, int, in
     def bounds(keyword: str, end_keyword: str) -> tuple[int, int]:
         try:
             start = next(
-                index for index, line in enumerate(lines) if line.strip().lower() == keyword
+                index
+                for index, line in enumerate(lines)
+                if line.strip().lower() == keyword
             )
             end = next(
                 index
@@ -76,7 +78,9 @@ def read_dat(path: Path) -> tuple[list[int], np.ndarray, list[tuple[int, int, in
                 if index > start and line.strip().lower() == end_keyword
             )
         except StopIteration:
-            raise SystemExit(f"{path.name}: no encuentro el bloque «{keyword} … {end_keyword}»")
+            raise SystemExit(
+                f"{path.name}: no encuentro el bloque «{keyword} … {end_keyword}»"
+            )
         return start, end
 
     coords_start, coords_end = bounds("coordinates", "end coordinates")
@@ -99,7 +103,9 @@ def read_dat(path: Path) -> tuple[list[int], np.ndarray, list[tuple[int, int, in
         triangles.append((int(parts[1]), int(parts[2]), int(parts[3])))
 
     if not ids or not triangles:
-        raise SystemExit(f"{path.name}: malla vacía ({len(ids)} nodos, {len(triangles)} elementos)")
+        raise SystemExit(
+            f"{path.name}: malla vacía ({len(ids)} nodos, {len(triangles)} elementos)"
+        )
     return ids, np.array(xyz, dtype=np.float64), triangles
 
 
@@ -112,7 +118,10 @@ def read_displacements(path: Path) -> dict[int, tuple[float, float, float]]:
         for line in handle:
             stripped = line.strip()
             if found is None:
-                if stripped.startswith('Result "Displacements') and "OnNodes" in stripped:
+                if (
+                    stripped.startswith('Result "Displacements')
+                    and "OnNodes" in stripped
+                ):
                     found = {}
                     inside = False
                 continue
@@ -130,11 +139,15 @@ def read_displacements(path: Path) -> dict[int, tuple[float, float, float]]:
             found[int(parts[0])] = (float(parts[1]), float(parts[2]), float(parts[3]))
 
     if not found:
-        raise SystemExit(f"{path.name}: no encuentro ningún bloque `Displacements … OnNodes`")
+        raise SystemExit(
+            f"{path.name}: no encuentro ningún bloque `Displacements … OnNodes`"
+        )
     return found
 
 
-def rotation_to_reference(source: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, float]:
+def rotation_to_reference(
+    source: np.ndarray, reference: np.ndarray
+) -> tuple[np.ndarray, float]:
     """Rotación (3×3) que lleva `source` sobre `reference`. Kabsch sin traslación."""
     u, _, vt = np.linalg.svd(source.T @ reference)
     rotation = vt.T @ u.T
@@ -170,7 +183,9 @@ def round_sig(value: float, digits: int = SIGNIFICANT_DIGITS) -> float:
     return round(value, digits - int(math.floor(math.log10(abs(value)))) - 1)
 
 
-def mesh_signature(ids: list[int], xyz: np.ndarray, triangles: list[tuple[int, int, int]]) -> str:
+def mesh_signature(
+    ids: list[int], xyz: np.ndarray, triangles: list[tuple[int, int, int]]
+) -> str:
     digest = hashlib.sha1()
     for node_id, (x, y, z) in zip(ids, xyz):
         digest.update(f"{node_id}:{x:.6f},{y:.6f},{z:.6f};".encode())
@@ -225,7 +240,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("cases", nargs="*", help="nombres de caso (por defecto, todos los de fem/)")
+    parser.add_argument(
+        "cases", nargs="*", help="nombres de caso (por defecto, todos los de fem/)"
+    )
     parser.add_argument("--out", type=Path, default=OUT_DIR, help="carpeta de salida")
     args = parser.parse_args()
 
@@ -272,7 +289,11 @@ def main() -> None:
             )
             continue
         alignments.append(
-            {"rotation": rotation.round(6).tolist(), "residual": residual, "reason": None}
+            {
+                "rotation": rotation.round(6).tolist(),
+                "residual": residual,
+                "reason": None,
+            }
         )
 
     if shared:
@@ -280,10 +301,13 @@ def main() -> None:
             "nodeCount": len(reference_ids),
             "triangleCount": len(reference_triangles),
             "positions": [
-                round(float(value), POSITION_DECIMALS) for value in reference_xyz.ravel()
+                round(float(value), POSITION_DECIMALS)
+                for value in reference_xyz.ravel()
             ],
             "indices": flat_indices(reference_ids, reference_triangles),
-            "signature": mesh_signature(reference_ids, reference_xyz, reference_triangles),
+            "signature": mesh_signature(
+                reference_ids, reference_xyz, reference_triangles
+            ),
             "frame": reference["case"],
         }
         (args.out / "mesh.json").write_text(
@@ -294,7 +318,9 @@ def main() -> None:
             f"frame de «{mesh['frame']}»"
         )
     else:
-        print("AVISO: los casos no se pueden llevar a una malla común; cada uno lleva la suya")
+        print(
+            "AVISO: los casos no se pueden llevar a una malla común; cada uno lleva la suya"
+        )
 
     index: list[dict] = []
     for case, alignment in zip(cases, alignments):
@@ -307,7 +333,10 @@ def main() -> None:
             "frameRotation": alignment["rotation"],
             "frameResidual": alignment["residual"],
             "frameNote": alignment["reason"],
-            "source": {"dat": f"{case['case']}.dat", "res": f"{case['case']}.flavia.res"},
+            "source": {
+                "dat": f"{case['case']}.dat",
+                "res": f"{case['case']}.flavia.res",
+            },
             "warnings": {"nodesWithoutResult": case["missingNodes"]},
         }
         # Vectores girados al frame de referencia, para poder combinarlos entre
@@ -336,7 +365,9 @@ def main() -> None:
             f"máx {payload['stats']['max']:.3e} m · p95 {payload['stats']['p95']:.3e} m"
         )
         if alignment["residual"] is not None:
-            print(f"  frame: rotado a «{reference['case']}», residuo {alignment['residual']:.2e} m")
+            print(
+                f"  frame: rotado a «{reference['case']}», residuo {alignment['residual']:.2e} m"
+            )
         if alignment["reason"]:
             print(f"  AVISO: {alignment['reason']}")
         if case["missingNodes"]:
@@ -353,7 +384,11 @@ def main() -> None:
 
     (args.out / "index.json").write_text(
         json.dumps(
-            {"reference": reference["case"], "mesh": "mesh.json" if shared else None, "cases": index},
+            {
+                "reference": reference["case"],
+                "mesh": "mesh.json" if shared else None,
+                "cases": index,
+            },
             indent=1,
         ),
         encoding="utf-8",

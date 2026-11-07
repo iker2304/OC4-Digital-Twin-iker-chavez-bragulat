@@ -65,7 +65,7 @@ export function buildTree(root: THREE.Object3D): TreeNode {
 
         const children = isRoot
             ? // Los hijos directos de la escena se agrupan por pieza, no por instancia.
-              groupChildren(object, kind)
+            groupChildren(object, kind)
             : object.children.map((child) => visit(child, kind, false));
 
         return {

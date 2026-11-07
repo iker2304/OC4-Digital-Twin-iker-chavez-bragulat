@@ -48,7 +48,14 @@ FEM_DIR = ROOT / "public" / "rotor-fem"
 OUT = FEM_DIR / "blade-glb.json"
 
 # Componentes de acceso glTF que puede traer un POSITION.
-COMPONENT_DTYPE = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
+COMPONENT_DTYPE = {
+    5120: np.int8,
+    5121: np.uint8,
+    5122: np.int16,
+    5123: np.uint16,
+    5125: np.uint32,
+    5126: np.float32,
+}
 COMPONENT_SIZE = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
 # Un nodo de pala en el `.glb` se llama así; el sufijo indica de qué pala es.
 BODY_PATTERN = "MeshBody"
@@ -86,9 +93,14 @@ def accessor_array(gltf: dict, binary: bytes, index: int) -> np.ndarray:
     stride = view.get("byteStride") or size * components
     count = accessor["count"]
     if stride == size * components:
-        flat = np.frombuffer(binary, dtype=dtype, count=count * components, offset=start)
+        flat = np.frombuffer(
+            binary, dtype=dtype, count=count * components, offset=start
+        )
         return flat.reshape(count, components).copy()
-    rows = [np.frombuffer(binary, dtype=dtype, count=components, offset=start + i * stride) for i in range(count)]
+    rows = [
+        np.frombuffer(binary, dtype=dtype, count=components, offset=start + i * stride)
+        for i in range(count)
+    ]
     return np.array(rows)
 
 
@@ -169,9 +181,13 @@ def blade_groups_by_azimuth(
     def vertices(index: int) -> np.ndarray:
         node = gltf["nodes"][index]
         position = accessor_array(
-            gltf, binary, gltf["meshes"][node["mesh"]]["primitives"][0]["attributes"]["POSITION"]
+            gltf,
+            binary,
+            gltf["meshes"][node["mesh"]]["primitives"][0]["attributes"]["POSITION"],
         )
-        homogeneous = np.hstack([position.astype(np.float64), np.ones((position.shape[0], 1))])
+        homogeneous = np.hstack(
+            [position.astype(np.float64), np.ones((position.shape[0], 1))]
+        )
         return (matrices[index] @ homogeneous.T).T[:, :3]
 
     centroides = {index: vertices(index).mean(axis=0) for index in indices}
@@ -203,7 +219,9 @@ def blade_groups_by_azimuth(
             if color in (gltf["nodes"][index].get("name") or "").lower()
         ]
         if not miembros:
-            raise SystemExit(f"--group azimuth necesita mallas con «{color}» en el nombre")
+            raise SystemExit(
+                f"--group azimuth necesita mallas con «{color}» en el nombre"
+            )
         colores[color] = np.mean([radial(index) for index in miembros], axis=0)
 
     grupos: dict[str, list[int]] = {color: [] for color in colores}
@@ -217,7 +235,9 @@ def blade_groups_by_azimuth(
     for color, miembros in grupos.items():
         direccion = np.mean([radial(index) for index in miembros], axis=0)
         direccion /= np.linalg.norm(direccion)
-        minimo = min(float(np.min((vertices(index) - hub) @ direccion)) for index in miembros)
+        minimo = min(
+            float(np.min((vertices(index) - hub) @ direccion)) for index in miembros
+        )
         geometria[color] = (direccion, hub + direccion * minimo)
 
     return grupos, axis, geometria
@@ -235,7 +255,9 @@ def blade_groups(gltf: dict) -> dict[str, list[int]]:
     return dict(sorted(groups.items()))
 
 
-def blade_vertices(gltf: dict, binary: bytes, matrices: list[np.ndarray], nodes: list[int]) -> tuple[np.ndarray, list[dict]]:
+def blade_vertices(
+    gltf: dict, binary: bytes, matrices: list[np.ndarray], nodes: list[int]
+) -> tuple[np.ndarray, list[dict]]:
     """Vértices de una pala en coordenadas de modelo y la lista de primitivas."""
     chunks: list[np.ndarray] = []
     primitives: list[dict] = []
@@ -243,7 +265,9 @@ def blade_vertices(gltf: dict, binary: bytes, matrices: list[np.ndarray], nodes:
         node = gltf["nodes"][index]
         mesh = gltf["meshes"][node["mesh"]]
         for primitive_index, primitive in enumerate(mesh["primitives"]):
-            position = accessor_array(gltf, binary, primitive["attributes"]["POSITION"]).astype(np.float64)
+            position = accessor_array(
+                gltf, binary, primitive["attributes"]["POSITION"]
+            ).astype(np.float64)
             homogeneous = np.hstack([position, np.ones((position.shape[0], 1))])
             world = (matrices[index] @ homogeneous.T).T[:, :3]
             chunks.append(world)
@@ -278,13 +302,17 @@ def rotvec_between(source: np.ndarray, target: np.ndarray) -> np.ndarray:
         return np.eye(3)
     axis /= sin
     angle = np.arctan2(sin, cos)
-    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    k = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
+    )
     return np.eye(3) + np.sin(angle) * k + (1 - np.cos(angle)) * (k @ k)
 
 
 def axis_angle(axis: np.ndarray, angle: float) -> np.ndarray:
     """Matriz de rotación de `angle` radianes alrededor de `axis` (unitario)."""
-    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    k = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
+    )
     return np.eye(3) + np.sin(angle) * k + (1 - np.cos(angle)) * (k @ k)
 
 
@@ -299,7 +327,9 @@ def kabsch(source: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarr
     return rotation, centroid_t - rotation @ centroid_s
 
 
-def register(fem: np.ndarray, blade: np.ndarray, blade_axis: np.ndarray, root: np.ndarray) -> dict:
+def register(
+    fem: np.ndarray, blade: np.ndarray, blade_axis: np.ndarray, root: np.ndarray
+) -> dict:
     """Alinea la malla FEM (eje −Z, raíz en z≈0) con la pala del `.glb`."""
     tree = cKDTree(blade)
 
@@ -348,7 +378,9 @@ def register(fem: np.ndarray, blade: np.ndarray, blade_axis: np.ndarray, root: n
     }
 
 
-def interpolate(tree: cKDTree, magnitudes: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def interpolate(
+    tree: cKDTree, magnitudes: np.ndarray, targets: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """IDW de k vecinos. Devuelve los valores y la distancia al vecino más lejano."""
     distances, indices = tree.query(targets, k=IDW_NEIGHBOURS)
     distances = np.maximum(distances, 1e-12)
@@ -357,7 +389,9 @@ def interpolate(tree: cKDTree, magnitudes: np.ndarray, targets: np.ndarray) -> t
     return values, distances[:, -1]
 
 
-def interpolate_vectors(tree: cKDTree, vectors: np.ndarray, targets: np.ndarray) -> np.ndarray:
+def interpolate_vectors(
+    tree: cKDTree, vectors: np.ndarray, targets: np.ndarray
+) -> np.ndarray:
     """IDW de los tres componentes. El signo se conserva, así que la superposición
     de cargas es una suma vectorial de verdad (los módulos sumados no lo son)."""
     distances, indices = tree.query(targets, k=IDW_NEIGHBOURS)
@@ -368,8 +402,12 @@ def interpolate_vectors(tree: cKDTree, vectors: np.ndarray, targets: np.ndarray)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--cases", nargs="*", help="casos a interpolar (por defecto, todos)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--cases", nargs="*", help="casos a interpolar (por defecto, todos)"
+    )
     parser.add_argument("--glb", type=Path, default=GLB)
     parser.add_argument(
         "--group",
@@ -382,12 +420,16 @@ def main() -> None:
 
     mesh_path = FEM_DIR / "mesh.json"
     if not mesh_path.exists():
-        raise SystemExit("falta public/rotor-fem/mesh.json: ejecuta antes fem-to-json.py")
+        raise SystemExit(
+            "falta public/rotor-fem/mesh.json: ejecuta antes fem-to-json.py"
+        )
     fem_mesh = json.loads(mesh_path.read_text(encoding="utf-8"))
     fem_nodes = np.array(fem_mesh["positions"], dtype=np.float64).reshape(-1, 3)
 
     case_files = sorted(
-        path for path in FEM_DIR.glob("blade-*.json") if not path.stem.startswith("blade-glb")
+        path
+        for path in FEM_DIR.glob("blade-*.json")
+        if not path.stem.startswith("blade-glb")
     )
     if args.cases:
         wanted = set(args.cases)
@@ -405,7 +447,9 @@ def main() -> None:
         groups, _, geometria = blade_groups_by_azimuth(gltf, binary, matrices)
         etiquetas = {}
         for clave, nodos in groups.items():
-            nombres = " ".join((gltf["nodes"][i].get("name") or "") for i in nodos).lower()
+            nombres = " ".join(
+                (gltf["nodes"][i].get("name") or "") for i in nodos
+            ).lower()
             color = next((c for c in ("red", "blue", "yellow") if c in nombres), None)
             etiquetas[clave] = color or f"pala{clave}"
         groups = {etiquetas[clave]: nodos for clave, nodos in groups.items()}
@@ -413,9 +457,13 @@ def main() -> None:
     else:
         groups = blade_groups(gltf)
     if not groups:
-        raise SystemExit(f"no encuentro mallas de pala en {args.glb.name} (prueba --group azimuth)")
+        raise SystemExit(
+            f"no encuentro mallas de pala en {args.glb.name} (prueba --group azimuth)"
+        )
 
-    print(f"{args.glb.name}: {sum(len(v) for v in groups.values())} primitivas en {len(groups)} pala(s)")
+    print(
+        f"{args.glb.name}: {sum(len(v) for v in groups.values())} primitivas en {len(groups)} pala(s)"
+    )
     print(f"FEM: {fem_nodes.shape[0]} nodos\n")
 
     payload: dict = {
@@ -454,7 +502,8 @@ def main() -> None:
             axis = world[:3, :3] @ np.array([0.0, 1.0, 0.0])
             axis /= np.linalg.norm(axis)
             root = world[:3, 3] + axis * (
-                blade_vertices_origin(gltf, binary, nodes[0]) * np.linalg.norm(world[:3, :3] @ np.array([0.0, 1.0, 0.0]))
+                blade_vertices_origin(gltf, binary, nodes[0])
+                * np.linalg.norm(world[:3, :3] @ np.array([0.0, 1.0, 0.0]))
             )
 
         # En `--group azimuth` las tres palas **no** son la misma malla (distinto
@@ -468,15 +517,31 @@ def main() -> None:
             # Puntos FEM ya registrados, llevados a esta pala por la transformación
             # entre sus nodos: M_esta · M_referencia⁻¹.
             relative = world @ np.linalg.inv(reference_matrix)
-            points = (relative @ np.hstack([aligned[reference], np.ones((aligned[reference].shape[0], 1))]).T).T[:, :3]
+            points = (
+                relative
+                @ np.hstack(
+                    [aligned[reference], np.ones((aligned[reference].shape[0], 1))]
+                ).T
+            ).T[:, :3]
             distances, _ = cKDTree(blade).query(points, k=1)
             alignment_out = None
+            # `rotation` tiene que significar **siempre** lo mismo (sistema FEM →
+            # sistema de la pala en el .glb). Aquí llega la relativa entre nodos, así
+            # que se compone con la de la referencia: antes se guardaba la relativa y
+            # el que la leyera (el reparto de la gravedad en la página) obtenía el
+            # reparto de otra pala.
+            reference_rotation = np.asarray(alignments[reference]["rotation"], dtype=np.float64)
+            reference_translation = np.asarray(
+                alignments[reference]["translation"], dtype=np.float64
+            )
+            effective_rotation = relative[:3, :3] @ reference_rotation
+            effective_translation = relative[:3, :3] @ reference_translation + relative[:3, 3]
             stats = {
                 "median": float(np.median(distances)),
                 "p95": float(np.quantile(distances, 0.95)),
                 "max": float(distances.max()),
-                "rotation": relative[:3, :3].tolist(),
-                "translation": relative[:3, 3].tolist(),
+                "rotation": effective_rotation.tolist(),
+                "translation": effective_translation.tolist(),
             }
 
         aligned[name] = points
@@ -494,7 +559,11 @@ def main() -> None:
                 "max": stats["max"],
                 "rotation": stats["rotation"],
                 "translation": stats["translation"],
-                "fromReference": None if (suffix == reference or args.group == "azimuth") else reference,
+                "fromReference": (
+                    None
+                    if (suffix == reference or args.group == "azimuth")
+                    else reference
+                ),
             },
         }
         print(
@@ -502,7 +571,9 @@ def main() -> None:
             f"p95 {stats['p95'] * 1e3:.2f} mm · max {stats['max'] * 1e3:.2f} mm"
         )
         if alignment_out is None:
-            print(f"  (registro heredado de «{'base' if reference == 'base' else reference}»)")
+            print(
+                f"  (registro heredado de «{'base' if reference == 'base' else reference}»)"
+            )
 
         tree = cKDTree(points)
         for case_path in case_files:
@@ -513,10 +584,19 @@ def main() -> None:
             quantised = np.clip(np.round(values / peak * 255), 0, 255).astype(np.uint8)
 
             entry = payload["cases"].setdefault(
-                case["case"], {"peaks": {}, "values": {}, "farNeighbour": {}, "vectors": {}, "vectorPeaks": {}}
+                case["case"],
+                {
+                    "peaks": {},
+                    "values": {},
+                    "farNeighbour": {},
+                    "vectors": {},
+                    "vectorPeaks": {},
+                },
             )
             entry["peaks"][name] = peak
-            entry["values"][name] = base64.b64encode(quantised.tobytes()).decode("ascii")
+            entry["values"][name] = base64.b64encode(quantised.tobytes()).decode(
+                "ascii"
+            )
             entry["farNeighbour"][name] = float(np.quantile(far, 0.95))
 
             # Los vectores hacen falta en todos los casos: la carga tangencial (α)
@@ -524,14 +604,20 @@ def main() -> None:
             # el mapa no puede distinguirlo.
             encoded_vectors = case.get("vectors")
             if encoded_vectors:
-                raw = np.frombuffer(base64.b64decode(encoded_vectors), dtype="<f4").reshape(-1, 3)
+                raw = np.frombuffer(
+                    base64.b64decode(encoded_vectors), dtype="<f4"
+                ).reshape(-1, 3)
                 # Del frame FEM al de la pala con la misma rotación del registro.
-                rotated = np.asarray(raw, dtype=np.float64) @ np.asarray(stats["rotation"]).T
+                rotated = (
+                    np.asarray(raw, dtype=np.float64) @ np.asarray(stats["rotation"]).T
+                )
                 interpolated = interpolate_vectors(tree, rotated, blade)
                 vector_peak = max(float(np.abs(interpolated).max()), 1e-30)
                 entry["vectorPeaks"][name] = vector_peak
                 for axis, column in zip("xyz", range(3)):
-                    component = np.clip(np.round(interpolated[:, column] / vector_peak * 127), -127, 127)
+                    component = np.clip(
+                        np.round(interpolated[:, column] / vector_peak * 127), -127, 127
+                    )
                     entry["vectors"].setdefault(name, {})[axis] = base64.b64encode(
                         component.astype(np.int8).tobytes()
                     ).decode("ascii")

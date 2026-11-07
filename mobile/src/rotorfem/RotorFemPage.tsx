@@ -147,7 +147,12 @@ type SpinRef = { current: number };
  *
  * El resultado son los cosenos directores, o sea el peso de cada caso.
  */
-function bladeGravityWeights(angles: [number, number, number], azimuth: number): Weights {
+function bladeGravityWeights(
+    angles: [number, number, number],
+    spin: number,
+    registration: number[][] | null
+): Weights {
+    // 1) Del mundo al sistema de la plataforma, que es donde se aplican los giros.
     const euler = new THREE.Euler(
         (angles[0] * Math.PI) / 180,
         (angles[1] * Math.PI) / 180,
@@ -155,15 +160,32 @@ function bladeGravityWeights(angles: [number, number, number], azimuth: number):
         'XYZ'
     );
     const inverse = new THREE.Matrix4().makeRotationFromEuler(euler).invert();
-    const plat = new THREE.Vector3(0, -1, 0).applyMatrix4(inverse);
-    const pala = plat.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
-    // **Con signo**: si la gravedad va al revés del eje del caso, el desplazamiento
-    // se invierte, y eso es justo lo que hay que poder pintar cuando el campo tiene
-    // signo (−100 % compresión ↔ +100 % tracción).
+    const gravedad = new THREE.Vector3(0, -1, 0).applyMatrix4(inverse);
+
+    // 2) El rotor gira sobre Z: la gravedad vista por la pala da vueltas con él.
+    gravedad.applyAxisAngle(new THREE.Vector3(0, 0, 1), -spin);
+
+    // 3) **Al sistema de los casos**, que es el del modelo FEM. Aquí estaba el
+    //    error: los casos `blade-x/y/z` son la gravedad según los ejes del FEM,
+    //    donde la pala va a lo largo de **−Z** (no del eje radial del gemelo). Sin
+    //    esta traspuesta, una pala vertical aparecía cargada de flexión cuando en
+    //    realidad solo está comprimida axialmente: el reparto salía por los ejes
+    //    del modelo, que no son los de la pala.
+    if (registration) {
+        const matrix = new THREE.Matrix3().set(
+            registration[0][0], registration[0][1], registration[0][2],
+            registration[1][0], registration[1][1], registration[1][2],
+            registration[2][0], registration[2][1], registration[2][2]
+        );
+        gravedad.applyMatrix3(matrix.transpose());
+    }
+
+    // Con signo: si la gravedad va al revés del eje del caso, el desplazamiento se
+    // invierte, y eso es lo que se pinta cuando el campo tiene signo.
     return {
-        'blade-x': pala.x,
-        'blade-y': pala.y,
-        'blade-z': pala.z,
+        'blade-x': gravedad.x,
+        'blade-y': gravedad.y,
+        'blade-z': gravedad.z,
     };
 }
 
@@ -552,10 +574,9 @@ function Twin({ scene, visible }: { scene: THREE.Object3D | null; visible: boole
 function Rotor({ node, omega, spin }: { node: THREE.Object3D | null; omega: SpinRef; spin: SpinRef }) {
     useFrame((_, delta) => {
         const speed = omega.current;
-        if (!speed) return;
         // Si la pestaña estuvo en segundo plano, `delta` llega enorme: el rotor
         // daría un salto de varias vueltas.
-        spin.current += speed * Math.min(delta, 0.1);
+        if (speed) spin.current += speed * Math.min(delta, 0.1);
         if (!node) return;
         const base = node.userData.__spinBase as number | undefined;
         const origin = base ?? node.rotation.z;
@@ -768,10 +789,10 @@ export function RotorFemPage() {
             mode === 'tangential'
                 ? omega
                 : mode === 'centripetal'
-                  ? OMEGA_REF * Math.sqrt(amplification)
-                  : mode === 'gravity'
-                    ? gravityOmega
-                    : 0;
+                    ? OMEGA_REF * Math.sqrt(amplification)
+                    : mode === 'gravity'
+                        ? gravityOmega
+                        : 0;
         omegaRef.current = fisica * spinGain;
     }, [mode, omega, amplification, gravityOmega, spinGain]);
 
@@ -780,6 +801,9 @@ export function RotorFemPage() {
     // barrido sin repintar 180.000 vértices sesenta veces por segundo.
     useEffect(() => {
         if (mode !== 'gravity') return;
+        // Al entrar hay que sincronizar: el rotor puede venir girando de otro modo,
+        // y si el reparto arranca en 0 no coincide con la posición que se ve.
+        setSpinAngle(spinRef.current);
         const timer = window.setInterval(() => setSpinAngle(spinRef.current), 110);
         return () => window.clearInterval(timer);
     }, [mode]);
@@ -862,44 +886,6 @@ export function RotorFemPage() {
     }, [gltf]);
 
     /**
-     * Acimut de reposo de cada pala del .glb, en radianes.
-     *
-     * Sale de la posición real de la geometría, no del orden del JSON: el bake
-     * numera las palas por el sufijo del nodo y eso no dice a qué ángulo están.
-     * Se calcula con el rotor quieto (se le descuenta `spinRef`) y se mide en el
-     * sistema del rotor, así que la inclinación de la plataforma no la afecta.
-     */
-    const bladeAzimuths = useMemo(() => {
-        if (!gltf || !bake.data || !rotorNode) return null;
-        gltf.updateMatrixWorld(true);
-        const normalize = (name: string) => name.replace(/[^0-9a-z]/gi, '').toLowerCase();
-        const byName = new Map<string, THREE.Object3D>();
-        gltf.traverse((child) => {
-            const key = normalize(child.name);
-            if (key && !byName.has(key)) byName.set(key, child);
-        });
-
-        const out: Record<string, number> = {};
-        for (const [bladeName, blade] of Object.entries(bake.data.blades)) {
-            const object = byName.get(normalize(blade.primitives[0].name));
-            if (!object) continue;
-            const box = new THREE.Box3();
-            object.traverse((child) => {
-                const mesh = child as THREE.Mesh;
-                if (!mesh.isMesh || !mesh.geometry) return;
-                mesh.geometry.computeBoundingBox();
-                const local = mesh.geometry.boundingBox;
-                if (!local) return;
-                box.expandByPoint(local.getCenter(new THREE.Vector3()).applyMatrix4(mesh.matrixWorld));
-            });
-            if (box.isEmpty()) continue;
-            const local = rotorNode.worldToLocal(box.getCenter(new THREE.Vector3()));
-            out[bladeName] = Math.atan2(local.y, local.x) - spinRef.current;
-        }
-        return out;
-    }, [gltf, bake.data, rotorNode]);
-
-    /**
      * Peso de cada caso base **para una pala concreta**, según el modo elegido.
      *
      * Solo la gravedad depende de la pala: centrífuga y tangencial son simétricas y
@@ -910,12 +896,23 @@ export function RotorFemPage() {
             if (mode === 'unit') return caseName ? { [caseName]: 1 } : NO_WEIGHTS;
             if (mode === 'centripetal') return { 'blade-centripetal': amplification };
             if (mode === 'tangential') return { 'blade-tangential': tangentialWeight };
-            return bladeGravityWeights(
-                gravityAngles,
-                (bladeAzimuths?.[bladeName] ?? 0) + spinAngle
-            );
+            // Cada pala lleva su propia matriz FEM → .glb, así que el reparto no
+            // necesita el acimut: se coge la gravedad del mundo, se pasa al sistema
+            // de la plataforma, se gira lo que haya girado el rotor y se proyecta
+            // sobre los ejes de los casos. Para una pala vertical sale z ≈ 100 %
+            // (solo compresión), que es lo que toca.
+            const icp = bake.data?.blades[bladeName]?.icp;
+            return bladeGravityWeights(gravityAngles, spinAngle, icp?.rotation ?? null);
         },
-        [mode, caseName, amplification, tangentialWeight, gravityAngles, bladeAzimuths, spinAngle]
+        [
+            mode,
+            caseName,
+            amplification,
+            tangentialWeight,
+            gravityAngles,
+            spinAngle,
+            bake.data,
+        ]
     );
 
     /** Nombres de las palas del bake, para los textos de la interfaz. */
@@ -1086,11 +1083,10 @@ export function RotorFemPage() {
                                             setColourScale(null);
                                             setMode(id);
                                         }}
-                                        className={`rounded border px-2 py-1 text-[10px] transition ${
-                                            mode === id
+                                        className={`rounded border px-2 py-1 text-[10px] transition ${mode === id
                                                 ? 'border-sky-400/60 bg-sky-400/10 text-slate-100'
                                                 : 'border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.07]'
-                                        }`}
+                                            }`}
                                     >
                                         {label}
                                     </button>
@@ -1104,11 +1100,10 @@ export function RotorFemPage() {
                                             key={entry.case}
                                             type="button"
                                             onClick={() => setCaseName(entry.case)}
-                                            className={`rounded border px-2 py-1 text-[10px] transition ${
-                                                entry.case === caseName
+                                            className={`rounded border px-2 py-1 text-[10px] transition ${entry.case === caseName
                                                     ? 'border-sky-400/60 bg-sky-400/10 text-slate-100'
                                                     : 'border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.07]'
-                                            }`}
+                                                }`}
                                         >
                                             {entry.case.replace(/^blade-/, '')}
                                         </button>
@@ -1248,7 +1243,7 @@ export function RotorFemPage() {
                                     <p className="text-[10px] leading-relaxed text-slate-600">
                                         La plataforma se inclina y la flecha cian marca la vertical del
                                         mundo. Con ω &gt; 0 el rotor gira y <strong>cada pala ve otra
-                                        gravedad</strong>, así que el mapa cambia mientras barre
+                                            gravedad</strong>, así que el mapa cambia mientras barre
                                         (desfase de 120°). Cosenos por pala:{' '}
                                         {bladeNames.map((name) => {
                                             const pesos = weightFor(name);
@@ -1281,6 +1276,17 @@ export function RotorFemPage() {
                                     <span className="w-12 text-right font-mono text-slate-300">
                                         {spinGain}×
                                     </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            spinRef.current = 0;
+                                            setSpinAngle(0);
+                                        }}
+                                        title="llevar el rotor a su posición de reposo"
+                                        className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-white/[0.07]"
+                                    >
+                                        0°
+                                    </button>
                                 </label>
                             ) : null}
                             <div className="mt-2">
@@ -1295,11 +1301,10 @@ export function RotorFemPage() {
                                             key={id}
                                             type="button"
                                             onClick={() => setField(id)}
-                                            className={`rounded border px-2 py-1 text-[10px] transition ${
-                                                field === id
+                                            className={`rounded border px-2 py-1 text-[10px] transition ${field === id
                                                     ? 'border-sky-400/60 bg-sky-400/10 text-slate-100'
                                                     : 'border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.07]'
-                                            }`}
+                                                }`}
                                         >
                                             {label}
                                         </button>
@@ -1333,6 +1338,44 @@ export function RotorFemPage() {
                                         unitario; por encima satura)
                                     </p>
                                 )}
+
+                                {/* Escala manual del color: el 100 % es el caso de
+                                    referencia, así que aquí se elige cuántos % pinta el
+                                    rojo. Va en escala logarítmica porque interesa de
+                                    10 % a 2000 %. */}
+                                <label className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
+                                    <span className="w-20 shrink-0">escala</span>
+                                    <input
+                                        type="range"
+                                        min={-1}
+                                        max={1.3}
+                                        step={0.02}
+                                        value={Math.log10(
+                                            paintScale > 0
+                                                ? (colourScale ?? paintScale) / paintScale
+                                                : 1
+                                        )}
+                                        onChange={(event) =>
+                                            setColourScale(
+                                                paintScale *
+                                                    Math.pow(10, Number(event.target.value))
+                                            )
+                                        }
+                                        className="flex-1"
+                                    />
+                                    <span className="w-14 text-right font-mono text-slate-300">
+                                        {paintScale > 0
+                                            ? `${Math.round(((colourScale ?? paintScale) / paintScale) * 100)} %`
+                                            : '—'}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setColourScale(null)}
+                                        className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-white/[0.07]"
+                                    >
+                                        auto
+                                    </button>
+                                </label>
                             </div>
                             <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
                                 <dt>pico pintado</dt>

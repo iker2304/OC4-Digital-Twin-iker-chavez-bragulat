@@ -83,6 +83,9 @@ export interface BladeBake {
                 median: number;
                 p95: number;
                 max: number;
+                /** Matriz 3×3 que lleva el sistema FEM al del `.glb` (fila mayor). */
+                rotation: number[][];
+                translation: [number, number, number];
                 fromReference: string | null;
             };
         }
