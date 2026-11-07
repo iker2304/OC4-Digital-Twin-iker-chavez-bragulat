@@ -296,9 +296,9 @@ def blade_vertices(
 def smooth_field(values: np.ndarray, topology: list[np.ndarray], iterations: int = 3) -> np.ndarray:
     """Suaviza un campo por vértice con la media de sus vecinos (Laplaciano).
 
-    La malla de la pala del `.glb` es gruesa (10.600 triángulos) y la
-    interpolación IDW deja el campo con escalones de un vértice a otro: al
-    pintarlo por colores de vértice eso se ve como parches. Suavizar aquí (una
+    La interpolación IDW deja el campo con escalones de un vértice a otro (los
+    nodos del FEM y los vértices del `.glb` no coinciden), y al pintarlo por
+    colores de vértice eso se ve como parches. Suavizar aquí (una
     vez, al hornear) cuesta segundos; hacerlo en el navegador costaría en cada
     repintado.
     """

@@ -236,9 +236,9 @@ function base64ToBytes(encoded: string): Uint8Array {
 /**
  * Prepara una malla de pala para pintarla **suave**.
  *
- * El `.glb` trae las palas casi sin indexar (20.216 vértices para 10.632
- * triángulos), así que cada triángulo tiene sus propios vértices con su normal y
- * su color. El resultado se ve a facetas: triángulos de colores y sombreado duro.
+ * El `.glb` trae las palas casi sin indexar (60.200 vértices para 32.914
+ * triángulos: 1,8 vértices por triángulo en vez de 0,5), así que cada triángulo
+ * tiene sus propios vértices con su normal y su color. El resultado se ve a facetas: triángulos de colores y sombreado duro.
  *
  * Aquí se agrupan los vértices que están **en la misma posición** y se usa ese
  * grupo para dos cosas: promediar el color (mapa continuo) y recalcular las
@@ -1598,40 +1598,44 @@ export function RotorFemPage() {
                                         className="pointer-events-none absolute inset-x-0 top-[3px] h-2 rounded"
                                         style={{ backgroundImage: gradientCss }}
                                     />
-                                    {/* Los dos extremos son **valores absolutos** y el recorrido
-                                        es el del análisis: el pulgar en su tope = escala
-                                        completa (lo que da «auto»), arrastrar hacia el centro
-                                        aprieta. Antes el recorrido era el doble, así que el
-                                        valor automático caía en mitad de la barra. */}
+                                    {/* Las dos manijas recorren **toda** la barra: la de la
+                                        izquierda dice hasta dónde llega el azul y la de la
+                                        derecha desde dónde empieza el rojo. Lo de fuera de
+                                        cada una va saturado. No son un slider de rango, no se
+                                        cruzan (cada una se recorta contra la otra). */}
                                     <input
                                         type="range"
                                         min={staticRange.min < 0 ? staticRange.min : 0}
-                                        max={0}
+                                        max={staticRange.max > 0 ? staticRange.max : 1}
                                         step={(staticRange.max || 1) / 400}
                                         disabled={!(staticRange.min < 0 && staticRange.max > 0)}
-                                        value={Math.min(0, Math.max(staticRange.min, escalaMin))}
-                                        aria-label="extremo azul"
-                                        onChange={(event) =>
+                                        value={Math.min(escalaMax, Math.max(staticRange.min, escalaMin))}
+                                        aria-label="hasta dónde llega el azul"
+                                        onChange={(event) => {
+                                            // No se cruzan, pero tampoco se bloquean: si el
+                                            // azul empuja al rojo, el rojo se va con él.
+                                            const value = Number(event.target.value);
                                             setScaleRange({
-                                                min: Number(event.target.value),
-                                                max: escalaMax,
-                                            })
-                                        }
+                                                min: value,
+                                                max: Math.max(escalaMax, value),
+                                            });
+                                        }}
                                     />
                                     <input
                                         type="range"
-                                        min={0}
+                                        min={staticRange.min < 0 ? staticRange.min : 0}
                                         max={staticRange.max > 0 ? staticRange.max : 1}
                                         step={(staticRange.max || 1) / 400}
                                         disabled={!(staticRange.max > 0)}
-                                        value={Math.max(0, Math.min(staticRange.max, escalaMax))}
-                                        aria-label="extremo rojo"
-                                        onChange={(event) =>
+                                        value={Math.max(escalaMin, Math.min(staticRange.max, escalaMax))}
+                                        aria-label="desde dónde empieza el rojo"
+                                        onChange={(event) => {
+                                            const value = Number(event.target.value);
                                             setScaleRange({
-                                                min: escalaMin,
-                                                max: Number(event.target.value),
-                                            })
-                                        }
+                                                min: Math.min(escalaMin, value),
+                                                max: value,
+                                            });
+                                        }}
                                     />
                                 </div>
                                 <div className="flex justify-between font-mono text-[10px] text-slate-500">
