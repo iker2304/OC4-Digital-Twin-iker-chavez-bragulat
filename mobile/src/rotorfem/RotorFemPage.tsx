@@ -174,6 +174,29 @@ function unpaintBlades(scene: THREE.Object3D): void {
     });
 }
 
+/**
+ * Opacidad de todo el gemelo, para poder ver las palas por dentro.
+ *
+ * `depthWrite` se apaga al hacerlo translúcido: si no, la cara de delante tapa
+ * la de detrás y no se ve nada de lo que hay dentro, que es justo lo que se
+ * busca con el deslizador.
+ */
+function applyTwinOpacity(scene: THREE.Object3D, opacity: number): void {
+    const translucid = opacity < 1;
+    scene.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const material of materials) {
+            if (!material) continue;
+            material.transparent = translucid;
+            material.opacity = opacity;
+            material.depthWrite = !translucid;
+            material.needsUpdate = true;
+        }
+    });
+}
+
 function BladeGeometry({
     mesh,
     magnitudes,
@@ -393,6 +416,7 @@ export function RotorFemPage() {
     const [wireframe, setWireframe] = useState(false);
     const [opacity, setOpacity] = useState(0.85);
     const [showTwin, setShowTwin] = useState(true);
+    const [twinOpacity, setTwinOpacity] = useState(1);
     const [showBlades, setShowBlades] = useState(true);
     const [paint, setPaint] = useState(false);
     const [painted, setPainted] = useState<{ painted: number; reason: string | null }>({
@@ -500,6 +524,12 @@ export function RotorFemPage() {
                 : { painted: 0, reason: null }
         );
     }, [gltf, paint, caseName, bake.data]);
+
+    // Después de pintar, porque pintar cambia los materiales (los clona).
+    useEffect(() => {
+        if (!gltf) return;
+        applyTwinOpacity(gltf, twinOpacity);
+    }, [gltf, twinOpacity, paint, caseName, bake.data]);
 
     const residual = bake.data?.blades.base?.icp;
 
@@ -695,6 +725,18 @@ export function RotorFemPage() {
                                 step={0.05}
                                 value={opacity}
                                 onChange={(event) => setOpacity(Number(event.target.value))}
+                                className="flex-1"
+                            />
+                        </label>
+                        <label className="flex items-center gap-2">
+                            <span className="w-14">gemelo</span>
+                            <input
+                                type="range"
+                                min={0.1}
+                                max={1}
+                                step={0.05}
+                                value={twinOpacity}
+                                onChange={(event) => setTwinOpacity(Number(event.target.value))}
                                 className="flex-1"
                             />
                         </label>
