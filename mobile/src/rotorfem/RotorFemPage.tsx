@@ -112,15 +112,21 @@ export type Weights = Record<string, number>;
 type SpinRef = { current: number };
 
 /**
- * Reparto de la gravedad entre los casos `x`, `y` y `z`.
+ * Gravedad en el sistema **de una pala**, repartida entre los casos `x`, `y`, `z`.
  *
- * Los tres casos son la misma plataforma cargada con la gravedad alineada con un
- * eje. Si la plataforma se inclina, la gravedad se reparte entre los tres con los
- * cosenos directores: se pasa `g = (0,−1,0)` al sistema del cuerpo con la
- * inversa de la rotación. Se combinan los tres a la vez, que es lo que pasa de
- * verdad cuando escora.
+ * Los tres casos son la misma pala cargada con la gravedad alineada con un eje.
+ * Dos rotaciones, en este orden:
+ *
+ * 1. `platformRotation` lleva la vertical del mundo (0,−1,0) al sistema de la
+ *    plataforma, que es donde están definidos los casos.
+ * 2. `azimuth` (radianes) es el ángulo **de esa pala** en el plano de barrido. La
+ *    pala está girada ese ángulo, así que su gravedad es la de la plataforma
+ *    girada −azimuth sobre Z. Aquí es donde entra el desfase de 120°: las tres
+ *    palas no ven la misma gravedad.
+ *
+ * El resultado son los cosenos directores, o sea el peso de cada caso.
  */
-function gravityWeights(angles: [number, number, number]): Weights {
+function bladeGravityWeights(angles: [number, number, number], azimuth: number): Weights {
     const euler = new THREE.Euler(
         (angles[0] * Math.PI) / 180,
         (angles[1] * Math.PI) / 180,
@@ -128,13 +134,17 @@ function gravityWeights(angles: [number, number, number]): Weights {
         'XYZ'
     );
     const inverse = new THREE.Matrix4().makeRotationFromEuler(euler).invert();
-    const gravity = new THREE.Vector3(0, -1, 0).applyMatrix4(inverse);
+    const plat = new THREE.Vector3(0, -1, 0).applyMatrix4(inverse);
+    const pala = plat.applyAxisAngle(new THREE.Vector3(0, 0, 1), -azimuth);
     return {
-        'blade-x': Math.abs(gravity.x),
-        'blade-y': Math.abs(gravity.y),
-        'blade-z': Math.abs(gravity.z),
+        'blade-x': Math.abs(pala.x),
+        'blade-y': Math.abs(pala.y),
+        'blade-z': Math.abs(pala.z),
     };
 }
+
+/** Sin casos activos no hay nada que pintar: objeto compartido para no crear basura. */
+const NO_WEIGHTS: Weights = {};
 
 /** base64 → bytes. `atob` devuelve binario, no hay UTF-8 de por medio. */
 function base64ToBytes(encoded: string): Uint8Array {
@@ -157,12 +167,9 @@ function base64ToBytes(encoded: string): Uint8Array {
 function paintBlades(
     scene: THREE.Object3D,
     bake: BladeBake,
-    weights: Weights,
+    weightFor: (bladeName: string) => Weights,
     scale: number
 ): { painted: number; reason: string | null; peak: number } {
-    const activos = Object.entries(weights).filter(([name, weight]) => weight > 0 && bake.cases[name]);
-    if (activos.length === 0) return { painted: 0, reason: 'ningún caso activo', peak: 0 };
-
     // three.js **sanea** los nombres al cargar el glTF (`MeshBody1 (2)` llega como
     // `MeshBody1_(2)`), así que no se puede buscar por el nombre del fichero: se
     // comparan las dos cadenas sin espacios ni signos.
@@ -174,10 +181,16 @@ function paintBlades(
     });
 
     // 1) Combinar los casos, pala a pala: u(v) = Σ w_c · |u_c(v)|. Los cinco casos
-    //    son lineales, así que superponerlos es válido para un mapa de color.
+    //    son lineales, así que superponerlos es válido para un mapa de color. Los
+    //    pesos se piden **por pala** porque en gravedad cada una ve otra dirección.
     const combinado = new Map<string, Float32Array>();
     let peak = 0;
+    let algunActivo = false;
     for (const [bladeName, blade] of Object.entries(bake.blades)) {
+        const activos = Object.entries(weightFor(bladeName)).filter(
+            ([name, weight]) => weight > 0 && bake.cases[name]
+        );
+        if (activos.length > 0) algunActivo = true;
         const total = new Float32Array(blade.vertexCount);
         for (const [caseName, weight] of activos) {
             const entry = bake.cases[caseName];
@@ -191,11 +204,11 @@ function paintBlades(
         combinado.set(bladeName, total);
         for (const value of total) if (value > peak) peak = value;
     }
+    if (!algunActivo) return { painted: 0, reason: 'ningún caso activo', peak: 0 };
     if (!(peak > 0)) return { painted: 0, reason: 'el caso vale 0 con estos parámetros', peak: 0 };
     // La escala del color **no** se normaliza con el pico del momento: si no, mover
     // el deslizador no cambiaría nada (el máximo siempre saldría rojo). Se fija al
-    // máximo del modo (5× en centrífuga, la suma de los tres en gravedad), así que
-    // subir la carga **sí** enciende el mapa.
+    // máximo del modo, así que subir la carga **sí** enciende el mapa.
     const referencia = scale > 0 ? scale : peak;
 
     // 2) Pintar, con **una sola escala** para las tres palas: si cada una se
@@ -231,30 +244,39 @@ function paintBlades(
                 };
             }
 
-            const colours = new Float32Array(primitive.count * 3);
+            // El atributo se **reutiliza** entre repintados: cuando el rotor gira en
+            // gravedad esto se llama 10 veces por segundo y crear 180.000 flotantes
+            // nuevos cada vez se nota.
+            let colours = mesh.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+            if (!colours || colours.count !== primitive.count) {
+                colours = new THREE.BufferAttribute(new Float32Array(primitive.count * 3), 3);
+                mesh.geometry.setAttribute('color', colours);
+            }
+            const array = colours.array as Float32Array;
             const colour = new THREE.Color();
             for (let index = 0; index < primitive.count; index += 1) {
                 colourFor(slice[index] / referencia, colour);
-                colours[index * 3] = colour.r;
-                colours[index * 3 + 1] = colour.g;
-                colours[index * 3 + 2] = colour.b;
+                array[index * 3] = colour.r;
+                array[index * 3 + 1] = colour.g;
+                array[index * 3 + 2] = colour.b;
             }
-            mesh.geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+            colours.needsUpdate = true;
 
-            if (!mesh.userData.__femMaterial) mesh.userData.__femMaterial = mesh.material;
-            // Material **nuevo**, no un clon: el original trae su albedo y su textura,
-            // y con `vertexColors` encima el resultado sale oscurecido (el color de
-            // vértice multiplica al del material). Aquí se sustituye del todo para
-            // que se vea el color del FEM tal cual.
-            const previous = mesh.material as THREE.Material;
-            mesh.material = new THREE.MeshStandardMaterial({
-                vertexColors: true,
-                roughness: 0.62,
-                metalness: 0.08,
-                side: previous.side,
-                transparent: previous.transparent,
-                opacity: previous.opacity,
-            });
+            if (!mesh.userData.__femMaterial) {
+                const previous = mesh.material as THREE.Material;
+                mesh.userData.__femMaterial = previous;
+                // Material **nuevo**, no un clon: el original trae su albedo y su
+                // textura, y con `vertexColors` encima el resultado sale oscurecido
+                // (el color de vértice multiplica al del material).
+                mesh.material = new THREE.MeshStandardMaterial({
+                    vertexColors: true,
+                    roughness: 0.62,
+                    metalness: 0.08,
+                    side: previous.side,
+                    transparent: previous.transparent,
+                    opacity: previous.opacity,
+                });
+            }
             painted += 1;
         }
     }
@@ -578,6 +600,14 @@ export function RotorFemPage() {
     const [inertia, setInertia] = useState(0.8);
     /** Inclinación de la plataforma (grados, XYZ) para repartir la gravedad. */
     const [gravityAngles, setGravityAngles] = useState<[number, number, number]>([0, 0, 0]);
+    /** ω libre del modo gravedad: la carga reparte distinto según dónde esté cada pala. */
+    const [gravityOmega, setGravityOmega] = useState(0);
+    /**
+     * Ángulo del rotor **muestreado** para pintar. El giro de verdad va en
+     * `spinRef` y no dispara renders; este se actualiza a 9 Hz porque cada cambio
+     * repinta las palas.
+     */
+    const [spinAngle, setSpinAngle] = useState(0);
     const [paintedPeak, setPaintedPeak] = useState(0);
     const [anchor, setAnchor] = useState<Anchor>(DEFAULT_ANCHOR);
 
@@ -637,9 +667,20 @@ export function RotorFemPage() {
                 ? omega
                 : mode === 'centripetal'
                   ? OMEGA_REF * Math.sqrt(amplification)
-                  : 0;
+                  : mode === 'gravity'
+                    ? gravityOmega
+                    : 0;
         omegaRef.current = fisica * spinGain;
-    }, [mode, omega, amplification, spinGain]);
+    }, [mode, omega, amplification, gravityOmega, spinGain]);
+
+    // Mientras el rotor gira en gravedad, cada pala cambia de orientación y con ella
+    // su reparto de carga: hay que volver a pintar. A 9 Hz basta para que se vea el
+    // barrido sin repintar 180.000 vértices sesenta veces por segundo.
+    useEffect(() => {
+        if (mode !== 'gravity') return;
+        const timer = window.setInterval(() => setSpinAngle(spinRef.current), 110);
+        return () => window.clearInterval(timer);
+    }, [mode]);
 
     /** Inclinación de la plataforma; solo se aplica en el modo de gravedad. */
     const platformRotation = useMemo(
@@ -650,17 +691,11 @@ export function RotorFemPage() {
         [mode, gravityAngles]
     );
 
-    /** Casos base que se combinan con qué peso, según el modo elegido. */
-    const weights = useMemo<Weights>(() => {
-        if (mode === 'unit') return caseName ? { [caseName]: 1 } : {};
-        if (mode === 'centripetal') return { 'blade-centripetal': amplification };
-        if (mode === 'tangential') {
-            // Cuantizado a pasos del 10 %: repintar 180.000 vértices por cada
-            // variación infinitesimal de α no se nota y se come el frame.
-            return { 'blade-tangential': Math.round((Math.abs(alpha) / ALPHA_REF) * 10) / 10 };
-        }
-        return gravityWeights(gravityAngles);
-    }, [mode, caseName, amplification, alpha, gravityAngles]);
+    /** Peso del caso tangencial: α relativo al caso unitario, a pasos del 10 %. */
+    const tangentialWeight = useMemo(
+        () => Math.round((Math.abs(alpha) / ALPHA_REF) * 10) / 10,
+        [alpha]
+    );
     const [colourScale, setColourScale] = useState<number | null>(null);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -686,9 +721,11 @@ export function RotorFemPage() {
             return Math.max(0, ...Object.values(entry.peaks));
         };
         if (mode === 'centripetal') return 5 * casePeak('blade-centripetal');
-        if (mode === 'tangential') return 5 * casePeak('blade-tangential');
+        if (mode === 'tangential') return 4 * casePeak('blade-tangential');
         if (mode === 'gravity') {
-            return casePeak('blade-x') + casePeak('blade-y') + casePeak('blade-z');
+            // El reparto es de |g| = 1 entre los tres ejes, así que el pico de una
+            // pala no pasa del mayor de los tres casos (más el cruce de cosenos).
+            return Math.max(casePeak('blade-x'), casePeak('blade-y'), casePeak('blade-z'));
         }
         return caseName ? casePeak(caseName) : 0;
     }, [bake.data, mode, caseName]);
@@ -701,14 +738,75 @@ export function RotorFemPage() {
      */
     const rotorNode = useMemo(() => {
         if (!gltf) return null;
-        let found: THREE.Object3D | null = null;
-        gltf.traverse((child) => {
-            if (found) return;
-            const key = child.name.replace(/[^0-9a-z]/gi, '').toLowerCase();
-            if (key === 'rotate' || key === 'rotation') found = child;
-        });
-        return found;
+        const todos: THREE.Object3D[] = [];
+        gltf.traverse((child) => todos.push(child));
+        return (
+            todos.find((child) => {
+                const key = child.name.replace(/[^0-9a-z]/gi, '').toLowerCase();
+                return key === 'rotate' || key === 'rotation';
+            }) ?? null
+        );
     }, [gltf]);
+
+    /**
+     * Acimut de reposo de cada pala del .glb, en radianes.
+     *
+     * Sale de la posición real de la geometría, no del orden del JSON: el bake
+     * numera las palas por el sufijo del nodo y eso no dice a qué ángulo están.
+     * Se calcula con el rotor quieto (se le descuenta `spinRef`) y se mide en el
+     * sistema del rotor, así que la inclinación de la plataforma no la afecta.
+     */
+    const bladeAzimuths = useMemo(() => {
+        if (!gltf || !bake.data || !rotorNode) return null;
+        gltf.updateMatrixWorld(true);
+        const normalize = (name: string) => name.replace(/[^0-9a-z]/gi, '').toLowerCase();
+        const byName = new Map<string, THREE.Object3D>();
+        gltf.traverse((child) => {
+            const key = normalize(child.name);
+            if (key && !byName.has(key)) byName.set(key, child);
+        });
+
+        const out: Record<string, number> = {};
+        for (const [bladeName, blade] of Object.entries(bake.data.blades)) {
+            const object = byName.get(normalize(blade.primitives[0].name));
+            if (!object) continue;
+            const box = new THREE.Box3();
+            object.traverse((child) => {
+                const mesh = child as THREE.Mesh;
+                if (!mesh.isMesh || !mesh.geometry) return;
+                mesh.geometry.computeBoundingBox();
+                const local = mesh.geometry.boundingBox;
+                if (!local) return;
+                box.expandByPoint(local.getCenter(new THREE.Vector3()).applyMatrix4(mesh.matrixWorld));
+            });
+            if (box.isEmpty()) continue;
+            const local = rotorNode.worldToLocal(box.getCenter(new THREE.Vector3()));
+            out[bladeName] = Math.atan2(local.y, local.x) - spinRef.current;
+        }
+        return out;
+    }, [gltf, bake.data, rotorNode]);
+
+    /**
+     * Peso de cada caso base **para una pala concreta**, según el modo elegido.
+     *
+     * Solo la gravedad depende de la pala: centrífuga y tangencial son simétricas y
+     * las tres ven lo mismo.
+     */
+    const weightFor = useCallback(
+        (bladeName: string): Weights => {
+            if (mode === 'unit') return caseName ? { [caseName]: 1 } : NO_WEIGHTS;
+            if (mode === 'centripetal') return { 'blade-centripetal': amplification };
+            if (mode === 'tangential') return { 'blade-tangential': tangentialWeight };
+            return bladeGravityWeights(
+                gravityAngles,
+                (bladeAzimuths?.[bladeName] ?? 0) + spinAngle
+            );
+        },
+        [mode, caseName, amplification, tangentialWeight, gravityAngles, bladeAzimuths, spinAngle]
+    );
+
+    /** Nombres de las palas del bake, para los textos de la interfaz. */
+    const bladeNames = useMemo(() => Object.keys(bake.data?.blades ?? {}), [bake.data]);
 
     // El `.glb` se carga a mano (no con `useGLTF`) porque el árbol vive **fuera**
     // del `<Canvas>`, y los hooks de R3F solo existen dentro.
@@ -796,22 +894,31 @@ export function RotorFemPage() {
     // apagar la casilla no deje colores viejos pegados.
     useEffect(() => {
         if (!gltf) return;
-        unpaintBlades(gltf);
         if (!paint || !bake.data) {
+            // Solo se despinta al apagar: si se hiciera en cada pasada se perderían
+            // los buffers y el material reutilizados, que es lo que hace barato
+            // repintar mientras el rotor gira.
+            unpaintBlades(gltf);
             setPainted({ painted: 0, reason: null });
             setPaintedPeak(0);
             return;
         }
-        const result = paintBlades(gltf, bake.data, weights, colourScale ?? paintScale);
+        const result = paintBlades(gltf, bake.data, weightFor, colourScale ?? paintScale);
         setPainted({ painted: result.painted, reason: result.reason });
         setPaintedPeak(result.peak);
-    }, [gltf, paint, bake.data, weights, paintScale, colourScale]);
+    }, [gltf, paint, bake.data, weightFor, paintScale, colourScale]);
+
+    // Al cambiar de gemelo (o desmontar) hay que devolver los materiales del anterior.
+    useEffect(() => {
+        if (!gltf) return;
+        return () => unpaintBlades(gltf);
+    }, [gltf]);
 
     // Después de pintar, porque pintar cambia los materiales.
     useEffect(() => {
         if (!gltf) return;
         applyTwinOpacity(gltf, twinOpacity);
-    }, [gltf, twinOpacity, paint, bake.data, weights, paintScale, colourScale]);
+    }, [gltf, twinOpacity, paint, bake.data, weightFor, paintScale, colourScale]);
 
     const residual = bake.data?.blades.base?.icp;
 
@@ -1005,23 +1112,43 @@ export function RotorFemPage() {
                                             </span>
                                         </label>
                                     ))}
+                                    <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                                        <span className="w-20 shrink-0">ω del rotor</span>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={6}
+                                            step={0.05}
+                                            value={gravityOmega}
+                                            onChange={(event) => setGravityOmega(Number(event.target.value))}
+                                            className="flex-1"
+                                        />
+                                        <span className="w-12 text-right font-mono text-slate-300">
+                                            {gravityOmega.toFixed(2)}
+                                        </span>
+                                    </label>
                                     <p className="text-[10px] leading-relaxed text-slate-600">
-                                        La plataforma se inclina en la escena y la flecha cian marca la
-                                        vertical del mundo. La gravedad se reparte entre los tres casos
-                                        con los cosenos:{' '}
-                                        {(['blade-x', 'blade-y', 'blade-z'] as const)
-                                            .map(
-                                                (name) =>
-                                                    `${name.slice(-1)} ${Math.round(
-                                                        (weights[name] ?? 0) * 100
-                                                    )}%`
-                                            )
-                                            .join(' · ')}
+                                        La plataforma se inclina y la flecha cian marca la vertical del
+                                        mundo. Con ω &gt; 0 el rotor gira y <strong>cada pala ve otra
+                                        gravedad</strong>, así que el mapa cambia mientras barre
+                                        (desfase de 120°). Cosenos por pala:{' '}
+                                        {bladeNames.map((name) => {
+                                            const pesos = weightFor(name);
+                                            const detalle = (['blade-x', 'blade-y', 'blade-z'] as const)
+                                                .map(
+                                                    (caso) =>
+                                                        `${caso.slice(-1)} ${Math.round(
+                                                            (pesos[caso] ?? 0) * 100
+                                                        )}%`
+                                                )
+                                                .join(' ');
+                                            return `${name}: ${detalle}`;
+                                        }).join(' · ')}
                                     </p>
                                 </div>
                             ) : null}
 
-                            {mode === 'centripetal' || mode === 'tangential' ? (
+                            {mode === 'centripetal' || mode === 'tangential' || mode === 'gravity' ? (
                                 <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
                                     <span className="w-20 shrink-0">giro visual</span>
                                     <input
@@ -1043,9 +1170,17 @@ export function RotorFemPage() {
                                 <dd className="text-right font-mono text-slate-300">
                                     {formatMetres(paintedPeak)}
                                 </dd>
-                                <dt>casos activos</dt>
+                                <dt>escala del color</dt>
                                 <dd className="text-right font-mono text-slate-300">
-                                    {Object.values(weights).filter((weight) => weight > 0).length}
+                                    {formatMetres(colourScale ?? paintScale)}
+                                </dd>
+                                <dt>saturación</dt>
+                                <dd className="text-right font-mono text-slate-300">
+                                    {(() => {
+                                        const tope = colourScale ?? paintScale;
+                                        if (!(tope > 0)) return '—';
+                                        return `${Math.round((paintedPeak / tope) * 100)}%`;
+                                    })()}
                                 </dd>
                             </dl>
                             {current.error ? (
