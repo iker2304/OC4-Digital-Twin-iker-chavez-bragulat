@@ -150,10 +150,18 @@ function paintBlades(scene: THREE.Object3D, bake: BladeBake, caseName: string): 
             mesh.geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
 
             if (!mesh.userData.__femMaterial) mesh.userData.__femMaterial = mesh.material;
-            const material = (mesh.material as THREE.MeshStandardMaterial).clone();
-            material.vertexColors = true;
-            material.map = null;
-            material.needsUpdate = true;
+            // Material **nuevo**, no un clon: el original trae su albedo y su textura,
+            // y con `vertexColors` encima el resultado sale oscurecido (el color de
+            // vértice multiplica al del material). Aquí se sustituye del todo para
+            // que se vea el color del FEM tal cual.
+            const material = new THREE.MeshStandardMaterial({
+                vertexColors: true,
+                roughness: 0.62,
+                metalness: 0.08,
+                side: (mesh.material as THREE.Material).side,
+                transparent: (mesh.material as THREE.Material).transparent,
+                opacity: (mesh.material as THREE.Material).opacity,
+            });
             mesh.material = material;
             painted += 1;
         }
@@ -417,8 +425,8 @@ export function RotorFemPage() {
     const [opacity, setOpacity] = useState(0.85);
     const [showTwin, setShowTwin] = useState(true);
     const [twinOpacity, setTwinOpacity] = useState(1);
-    const [showBlades, setShowBlades] = useState(true);
-    const [paint, setPaint] = useState(false);
+    const [showBlades, setShowBlades] = useState(false);
+    const [paint, setPaint] = useState(true);
     const [painted, setPainted] = useState<{ painted: number; reason: string | null }>({
         painted: 0,
         reason: null,
@@ -429,7 +437,9 @@ export function RotorFemPage() {
     const index = useJson<FemIndex>(`${FEM_BASE}/index.json`);
     const mesh = useJson<FemMesh>(`${FEM_BASE}/mesh.json`);
     const current = useJson<FemCase>(caseName ? `${FEM_BASE}/${caseName}.json` : null);
-    const bake = useJson<BladeBake>(`${FEM_BASE}/blade-glb.json`);
+    const bake = useJson<BladeBake>(
+        twinFile === 'OC4.glb' ? `${FEM_BASE}/blade-glb.json` : `${FEM_BASE}/blade-glb-modal.json`
+    );
 
     // El `.glb` se carga a mano (no con `useGLTF`) porque el árbol vive **fuera**
     // del `<Canvas>`, y los hooks de R3F solo existen dentro.

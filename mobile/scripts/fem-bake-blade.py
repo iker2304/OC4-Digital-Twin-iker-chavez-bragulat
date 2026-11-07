@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import re
 import json
 from pathlib import Path
 
@@ -42,7 +43,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 ROOT = Path(__file__).resolve().parent.parent
-GLB = ROOT / "public" / "models" / "OC4.glb"
+GLB = ROOT / "public" / "models" / "OC4.glb"  # se puede cambiar con --glb
 FEM_DIR = ROOT / "public" / "rotor-fem"
 OUT = FEM_DIR / "blade-glb.json"
 
@@ -128,6 +129,98 @@ def world_matrices(gltf: dict) -> list[np.ndarray]:
     for root in roots:
         walk(root, np.eye(4))
     return matrices
+
+
+def descendant_meshes(gltf: dict, root_index: int) -> list[int]:
+    """Nodos con malla que cuelgan de `root_index` (él incluido)."""
+    out: list[int] = []
+    stack = [root_index]
+    while stack:
+        index = stack.pop()
+        node = gltf["nodes"][index]
+        if node.get("mesh") is not None:
+            out.append(index)
+        stack.extend(node.get("children", []))
+    return out
+
+
+def rotor_root(gltf: dict) -> int:
+    """Nodo del grupo que gira: `rotate` en OC4.glb, `rotation` en OC4-modal.glb."""
+    for index, node in enumerate(gltf["nodes"]):
+        if re.match(r"^rotat(e|ion)$", (node.get("name") or "").strip(), re.IGNORECASE):
+            return index
+    raise SystemExit("no encuentro el grupo del rotor (`rotate` / `rotation`)")
+
+
+def blade_groups_by_azimuth(
+    gltf: dict, binary: bytes, matrices: list[np.ndarray]
+) -> tuple[dict[str, list[int]], np.ndarray, dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Agrupa las mallas de pala **por el acimut** de su centroide.
+
+    En `OC4-modal.glb` cada pala son cuatro mallas con nombres distintos
+    (`bottom_blade`, `mid_blade`, `red_1`, `red_2`) y solo las coloreadas llevan
+    la pala en el nombre. Así que: primero se sacan las tres direcciones de las
+    mallas `red…`, `blue…` y `yellow…`, y después cada malla restante se asigna a
+    la dirección con la que más se alinea. Simple y sin cortes por huecos, que es
+    donde se colaba un grupo de tres y otro de cinco.
+    """
+    indices = descendant_meshes(gltf, rotor_root(gltf))
+
+    def vertices(index: int) -> np.ndarray:
+        node = gltf["nodes"][index]
+        position = accessor_array(
+            gltf, binary, gltf["meshes"][node["mesh"]]["primitives"][0]["attributes"]["POSITION"]
+        )
+        homogeneous = np.hstack([position.astype(np.float64), np.ones((position.shape[0], 1))])
+        return (matrices[index] @ homogeneous.T).T[:, :3]
+
+    centroides = {index: vertices(index).mean(axis=0) for index in indices}
+
+    # Centro del buje: el nodo `Hub…` con malla; si no hay, la media de todo.
+    hub = None
+    for index in indices:
+        if (gltf["nodes"][index].get("name") or "").lower().startswith("hub"):
+            hub = centroides[index]
+            break
+    if hub is None:
+        hub = np.mean(list(centroides.values()), axis=0)
+
+    # Eje de giro: la dirección de menor varianza de los centroides.
+    puntos = np.array([centroides[index] - hub for index in indices])
+    _, _, vt = np.linalg.svd(puntos - puntos.mean(axis=0), full_matrices=False)
+    axis = vt[2] / np.linalg.norm(vt[2])
+
+    def radial(index: int) -> np.ndarray:
+        vector = centroides[index] - hub
+        vector = vector - axis * float(np.dot(vector, axis))
+        return vector / max(np.linalg.norm(vector), 1e-9)
+
+    colores = {}
+    for color in ("red", "blue", "yellow"):
+        miembros = [
+            index
+            for index in indices
+            if color in (gltf["nodes"][index].get("name") or "").lower()
+        ]
+        if not miembros:
+            raise SystemExit(f"--group azimuth necesita mallas con «{color}» en el nombre")
+        colores[color] = np.mean([radial(index) for index in miembros], axis=0)
+
+    grupos: dict[str, list[int]] = {color: [] for color in colores}
+    for index in indices:
+        direccion = radial(index)
+        color = max(colores, key=lambda name: float(np.dot(direccion, colores[name])))
+        grupos[color].append(index)
+
+    # Para cada grupo: dirección radial (eje de la pala) y dónde empieza la raíz.
+    geometria: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for color, miembros in grupos.items():
+        direccion = np.mean([radial(index) for index in miembros], axis=0)
+        direccion /= np.linalg.norm(direccion)
+        minimo = min(float(np.min((vertices(index) - hub) @ direccion)) for index in miembros)
+        geometria[color] = (direccion, hub + direccion * minimo)
+
+    return grupos, axis, geometria
 
 
 def blade_groups(gltf: dict) -> dict[str, list[int]]:
@@ -268,6 +361,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cases", nargs="*", help="casos a interpolar (por defecto, todos)")
     parser.add_argument("--glb", type=Path, default=GLB)
+    parser.add_argument(
+        "--group",
+        choices=["suffix", "azimuth"],
+        default="suffix",
+        help="cómo agrupar las mallas de una pala: por sufijo del nombre (.001/.002) o por acimut",
+    )
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args()
 
@@ -277,7 +376,9 @@ def main() -> None:
     fem_mesh = json.loads(mesh_path.read_text(encoding="utf-8"))
     fem_nodes = np.array(fem_mesh["positions"], dtype=np.float64).reshape(-1, 3)
 
-    case_files = sorted(path for path in FEM_DIR.glob("blade-*.json") if path.stem != "blade-glb")
+    case_files = sorted(
+        path for path in FEM_DIR.glob("blade-*.json") if not path.stem.startswith("blade-glb")
+    )
     if args.cases:
         wanted = set(args.cases)
         case_files = [path for path in case_files if path.stem in wanted]
@@ -286,9 +387,23 @@ def main() -> None:
 
     gltf, binary = read_glb(args.glb)
     matrices = world_matrices(gltf)
-    groups = blade_groups(gltf)
+
+    geometria: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    if args.group == "azimuth":
+        # `OC4-modal.glb`: cada pala son cuatro mallas con nombres distintos, sin
+        # sufijo común, así que se agrupan por la dirección en la que están.
+        groups, _, geometria = blade_groups_by_azimuth(gltf, binary, matrices)
+        etiquetas = {}
+        for clave, nodos in groups.items():
+            nombres = " ".join((gltf["nodes"][i].get("name") or "") for i in nodos).lower()
+            color = next((c for c in ("red", "blue", "yellow") if c in nombres), None)
+            etiquetas[clave] = color or f"pala{clave}"
+        groups = {etiquetas[clave]: nodos for clave, nodos in groups.items()}
+        geometria = {etiquetas[clave]: valor for clave, valor in geometria.items()}
+    else:
+        groups = blade_groups(gltf)
     if not groups:
-        raise SystemExit(f"no encuentro nodos «{BODY_PATTERN}» en {args.glb.name}")
+        raise SystemExit(f"no encuentro mallas de pala en {args.glb.name} (prueba --group azimuth)")
 
     print(f"{args.glb.name}: {sum(len(v) for v in groups.values())} primitivas en {len(groups)} pala(s)")
     print(f"FEM: {fem_nodes.shape[0]} nodos\n")
@@ -296,6 +411,7 @@ def main() -> None:
     payload: dict = {
         "glb": args.glb.name,
         "mesh": "mesh.json",
+        "grouping": args.group,
         "blades": {},
         "cases": {},
     }
@@ -308,6 +424,8 @@ def main() -> None:
     names = list(groups)
     # De referencia, la que no tiene sufijo: es la que estaba en la escena original.
     reference = "base" if "base" in groups else names[0]
+    if args.group == "azimuth":
+        reference = names[0]
     # La referencia **primero**: las demás heredan su registro.
     names = [reference] + [name for name in names if name != reference]
     reference_matrix = matrices[groups[reference][0]]
@@ -320,13 +438,19 @@ def main() -> None:
         name = "base" if suffix == "base" else suffix
 
         world = matrices[nodes[0]]
-        axis = world[:3, :3] @ np.array([0.0, 1.0, 0.0])
-        axis /= np.linalg.norm(axis)
-        root = world[:3, 3] + axis * (
-            blade_vertices_origin(gltf, binary, nodes[0]) * np.linalg.norm(world[:3, :3] @ np.array([0.0, 1.0, 0.0]))
-        )
+        if name in geometria:
+            axis, root = geometria[name]
+        else:
+            axis = world[:3, :3] @ np.array([0.0, 1.0, 0.0])
+            axis /= np.linalg.norm(axis)
+            root = world[:3, 3] + axis * (
+                blade_vertices_origin(gltf, binary, nodes[0]) * np.linalg.norm(world[:3, :3] @ np.array([0.0, 1.0, 0.0]))
+            )
 
-        if suffix == reference:
+        # En `--group azimuth` las tres palas **no** son la misma malla (distinto
+        # teselado: 59.944 / 57.853 / 55.914 vértices), así que heredar el
+        # registro de otra no vale y cada una se registra por su cuenta.
+        if suffix == reference or args.group == "azimuth":
             alignment = register(fem_nodes, blade, axis, root)
             points = alignment_out = alignment["points"]
             stats = alignment
@@ -360,7 +484,7 @@ def main() -> None:
                 "max": stats["max"],
                 "rotation": stats["rotation"],
                 "translation": stats["translation"],
-                "fromReference": None if suffix == reference else reference,
+                "fromReference": None if (suffix == reference or args.group == "azimuth") else reference,
             },
         }
         print(
@@ -385,7 +509,7 @@ def main() -> None:
 
     args.out.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     size = args.out.stat().st_size / 1024
-    print(f"\n{args.out.relative_to(ROOT)}  ({size:.0f} KB) · {len(case_files)} caso(s)")
+    print(f"\n{args.out}  ({size:.0f} KB) · {len(case_files)} caso(s)")
 
 
 def blade_vertices_origin(gltf: dict, binary: bytes, node_index: int) -> float:
