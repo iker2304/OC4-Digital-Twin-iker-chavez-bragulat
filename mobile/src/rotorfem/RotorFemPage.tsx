@@ -90,9 +90,14 @@ function colourFor(value: number, target: THREE.Color): THREE.Color {
 function colourForSigned(value: number, target: THREE.Color): THREE.Color {
     const t = Math.min(1, Math.max(-1, value));
     const fuerza = Math.abs(t);
-    // El cero es un gris medio, no un blanco: con el casi-blanco las zonas neutras
-    // (casi toda la pala) se confundían con el material sin pintar del gemelo.
-    return target.setHSL(t >= 0 ? 0 : 0.6, 0.25 + 0.65 * fuerza, 0.56 - 0.12 * fuerza);
+    // Azul → **blanco** → rojo, igual que el colorbar. La saturación sube deprisa
+    // (exponente < 1) para que los valores pequeños ya se vean con color y no se
+    // confundan con el material blanco del gemelo.
+    return target.setHSL(
+        t >= 0 ? 0 : 0.6,
+        Math.min(1, 0.9 * Math.pow(fuerza, 0.55)),
+        0.93 - 0.43 * Math.pow(fuerza, 0.7)
+    );
 }
 
 /** int8 en base64 (los componentes con signo). */
@@ -1249,7 +1254,7 @@ export function RotorFemPage() {
             return `linear-gradient(90deg,
                 hsl(216,85%,52%) 0%,
                 hsl(216,85%,52%) ${left}%,
-                hsl(216,25%,70%) ${centro}%,
+                hsl(0,0%,100%) ${centro}%,
                 hsl(0,85%,52%) ${right}%,
                 hsl(0,85%,52%) 100%)`.replace(/\s+/g, ' ');
         }

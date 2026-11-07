@@ -257,10 +257,12 @@ def blade_groups(gltf: dict) -> dict[str, list[int]]:
 
 def blade_vertices(
     gltf: dict, binary: bytes, matrices: list[np.ndarray], nodes: list[int]
-) -> tuple[np.ndarray, list[dict]]:
-    """Vértices de una pala en coordenadas de modelo y la lista de primitivas."""
+) -> tuple[np.ndarray, list[dict], list[np.ndarray]]:
+    """Vértices de una pala en coordenadas de modelo, primitivas y topología."""
     chunks: list[np.ndarray] = []
     primitives: list[dict] = []
+    topology: list[np.ndarray] = []
+    offset = 0
     for index in nodes:
         node = gltf["nodes"][index]
         mesh = gltf["meshes"][node["mesh"]]
@@ -271,6 +273,12 @@ def blade_vertices(
             homogeneous = np.hstack([position, np.ones((position.shape[0], 1))])
             world = (matrices[index] @ homogeneous.T).T[:, :3]
             chunks.append(world)
+            raw_indices = primitive.get("indices")
+            if raw_indices is not None:
+                topology.append(
+                    accessor_array(gltf, binary, raw_indices).astype(np.int64) + offset
+                )
+            offset += int(position.shape[0])
             primitives.append(
                 {
                     "node": index,
@@ -282,7 +290,40 @@ def blade_vertices(
                     "checksum": geometric_checksum(position),
                 }
             )
-    return np.vstack(chunks), primitives
+    return np.vstack(chunks), primitives, topology
+
+
+def smooth_field(values: np.ndarray, topology: list[np.ndarray], iterations: int = 3) -> np.ndarray:
+    """Suaviza un campo por vértice con la media de sus vecinos (Laplaciano).
+
+    La malla de la pala del `.glb` es gruesa (10.600 triángulos) y la
+    interpolación IDW deja el campo con escalones de un vértice a otro: al
+    pintarlo por colores de vértice eso se ve como parches. Suavizar aquí (una
+    vez, al hornear) cuesta segundos; hacerlo en el navegador costaría en cada
+    repintado.
+    """
+    if not topology:
+        return values
+    tri = np.concatenate(topology)
+    if tri.size < 3:
+        return values
+    i0, i1, i2 = tri[0::3], tri[1::3], tri[2::3]
+    source = np.concatenate([i0, i1, i2, i1, i2, i0, i2, i0, i1])
+    target = np.concatenate([i1, i2, i0, i2, i0, i1, i0, i1, i2])
+
+    result = np.asarray(values, dtype=np.float64).copy()
+    extra = result.ndim > 1
+    count = np.zeros(result.shape[0], dtype=np.float64)
+    np.add.at(count, target, 1)
+    count = np.maximum(count, 1)
+    if extra:
+        count = count[:, None]
+
+    for _ in range(iterations):
+        acc = np.zeros_like(result)
+        np.add.at(acc, target, result[source])
+        result = result + 0.45 * (acc / count - result)
+    return result
 
 
 def geometric_checksum(position: np.ndarray) -> str:
@@ -492,7 +533,7 @@ def main() -> None:
 
     for suffix in names:
         nodes = groups[suffix]
-        blade, primitives = blade_vertices(gltf, binary, matrices, nodes)
+        blade, primitives, topology = blade_vertices(gltf, binary, matrices, nodes)
         name = "base" if suffix == "base" else suffix
 
         world = matrices[nodes[0]]
@@ -580,6 +621,7 @@ def main() -> None:
             case = json.loads(case_path.read_text(encoding="utf-8"))
             magnitudes = np.array(case["magnitudes"], dtype=np.float64)
             values, far = interpolate(tree, magnitudes, blade)
+            values = smooth_field(values, topology)
             peak = max(float(values.max()), 1e-30)
             quantised = np.clip(np.round(values / peak * 255), 0, 255).astype(np.uint8)
 
@@ -611,7 +653,7 @@ def main() -> None:
                 rotated = (
                     np.asarray(raw, dtype=np.float64) @ np.asarray(stats["rotation"]).T
                 )
-                interpolated = interpolate_vectors(tree, rotated, blade)
+                interpolated = smooth_field(interpolate_vectors(tree, rotated, blade), topology)
                 vector_peak = max(float(np.abs(interpolated).max()), 1e-30)
                 entry["vectorPeaks"][name] = vector_peak
                 for axis, column in zip("xyz", range(3)):
