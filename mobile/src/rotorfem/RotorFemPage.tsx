@@ -81,6 +81,58 @@ function colourFor(value: number, target: THREE.Color): THREE.Color {
     return target.setHSL(0.66 * (1 - t), 0.85, 0.5 + 0.08 * t);
 }
 
+/* ------------------------------------------------------- casos de carga */
+
+/**
+ * Radio de punta de pala en metros (el mismo `BLADE_TIP_R` de
+ * `lib/pose/rotorAngle.ts`). Todo el escalado de los casos unitarios se refiere
+ * a este radio: la carga triangular vale 1 en la punta.
+ */
+const BLADE_TIP_M = 0.63;
+/** El caso unitario equivale a **1 m/s²** en la punta de la pala. */
+const REFERENCE_ACCEL = 1;
+/** ω que da 1 m/s² centrípeto en la punta: ω = √(a/r) ≈ 1,26 rad/s. */
+const OMEGA_REF = Math.sqrt(REFERENCE_ACCEL / BLADE_TIP_M);
+/** α que da 1 m/s² tangencial en la punta: α = a/r ≈ 1,59 rad/s². */
+const ALPHA_REF = REFERENCE_ACCEL / BLADE_TIP_M;
+
+export type LoadMode = 'unit' | 'centripetal' | 'tangential' | 'gravity';
+
+/** Metros a la unidad que toque: las escalas van de nanómetros a micrómetros. */
+function formatMetres(value: number): string {
+    if (value < 1e-6) return `${(value * 1e9).toFixed(1)} nm`;
+    if (value < 1e-3) return `${(value * 1e6).toFixed(2)} µm`;
+    return `${(value * 1e3).toFixed(2)} mm`;
+}
+
+/** Peso de cada caso base (nombre del JSON) en el mapa que se pinta. */
+export type Weights = Record<string, number>;
+
+/**
+ * Reparto de la gravedad entre los casos `x`, `y` y `z`.
+ *
+ * Los tres casos son la misma plataforma cargada con la gravedad alineada con un
+ * eje. Si la plataforma se inclina, la gravedad se reparte entre los tres con los
+ * cosenos directores: se pasa `g = (0,−1,0)` al sistema del cuerpo con la
+ * inversa de la rotación. Se combinan los tres a la vez, que es lo que pasa de
+ * verdad cuando escora.
+ */
+function gravityWeights(angles: [number, number, number]): Weights {
+    const euler = new THREE.Euler(
+        (angles[0] * Math.PI) / 180,
+        (angles[1] * Math.PI) / 180,
+        (angles[2] * Math.PI) / 180,
+        'XYZ'
+    );
+    const inverse = new THREE.Matrix4().makeRotationFromEuler(euler).invert();
+    const gravity = new THREE.Vector3(0, -1, 0).applyMatrix4(inverse);
+    return {
+        'blade-x': Math.abs(gravity.x),
+        'blade-y': Math.abs(gravity.y),
+        'blade-z': Math.abs(gravity.z),
+    };
+}
+
 /** base64 → bytes. `atob` devuelve binario, no hay UTF-8 de por medio. */
 function base64ToBytes(encoded: string): Uint8Array {
     const binary = atob(encoded);
@@ -99,9 +151,14 @@ function base64ToBytes(encoded: string): Uint8Array {
  * Devuelve cuántas primitivas se pintaron (0 si el `.glb` no es el que se horneó:
  * el recuento de vértices deja de cuadrar y se descarta en vez de pintar basura).
  */
-function paintBlades(scene: THREE.Object3D, bake: BladeBake, caseName: string): { painted: number; reason: string | null } {
-    const entry = bake.cases[caseName];
-    if (!entry) return { painted: 0, reason: `el JSON no tiene el caso ${caseName}` };
+function paintBlades(
+    scene: THREE.Object3D,
+    bake: BladeBake,
+    weights: Weights,
+    scale: number
+): { painted: number; reason: string | null; peak: number } {
+    const activos = Object.entries(weights).filter(([name, weight]) => weight > 0 && bake.cases[name]);
+    if (activos.length === 0) return { painted: 0, reason: 'ningún caso activo', peak: 0 };
 
     // three.js **sanea** los nombres al cargar el glTF (`MeshBody1 (2)` llega como
     // `MeshBody1_(2)`), así que no se puede buscar por el nombre del fichero: se
@@ -113,36 +170,68 @@ function paintBlades(scene: THREE.Object3D, bake: BladeBake, caseName: string): 
         if (key && !byName.has(key)) byName.set(key, child);
     });
 
+    // 1) Combinar los casos, pala a pala: u(v) = Σ w_c · |u_c(v)|. Los cinco casos
+    //    son lineales, así que superponerlos es válido para un mapa de color.
+    const combinado = new Map<string, Float32Array>();
+    let peak = 0;
+    for (const [bladeName, blade] of Object.entries(bake.blades)) {
+        const total = new Float32Array(blade.vertexCount);
+        for (const [caseName, weight] of activos) {
+            const entry = bake.cases[caseName];
+            const encoded = entry.values[bladeName];
+            if (!encoded) continue;
+            const bytes = base64ToBytes(encoded);
+            const factor = (weight * (entry.peaks[bladeName] ?? 0)) / 255;
+            const limite = Math.min(total.length, bytes.length);
+            for (let index = 0; index < limite; index += 1) total[index] += bytes[index] * factor;
+        }
+        combinado.set(bladeName, total);
+        for (const value of total) if (value > peak) peak = value;
+    }
+    if (!(peak > 0)) return { painted: 0, reason: 'el caso vale 0 con estos parámetros', peak: 0 };
+    // La escala del color **no** se normaliza con el pico del momento: si no, mover
+    // el deslizador no cambiaría nada (el máximo siempre saldría rojo). Se fija al
+    // máximo del modo (5× en centrífuga, la suma de los tres en gravedad), así que
+    // subir la carga **sí** enciende el mapa.
+    const referencia = scale > 0 ? scale : peak;
+
+    // 2) Pintar, con **una sola escala** para las tres palas: si cada una se
+    //    normalizase por su propio máximo, el mismo color significaría cosas
+    //    distintas en cada aspa.
     let painted = 0;
     for (const [bladeName, blade] of Object.entries(bake.blades)) {
-        const encoded = entry.values[bladeName];
-        if (!encoded) continue;
-        const values = base64ToBytes(encoded);
+        const total = combinado.get(bladeName);
+        if (!total) continue;
         let offset = 0;
 
         for (const primitive of blade.primitives) {
-            const slice = values.subarray(offset, offset + primitive.count);
+            const slice = total.subarray(offset, offset + primitive.count);
             offset += primitive.count;
 
             const object = byName.get(normalize(primitive.name));
-            if (!object) return { painted, reason: `no encuentro el nodo «${primitive.name}»` };
+            if (!object) return { painted, reason: `no encuentro el nodo «${primitive.name}»`, peak };
+
             const meshes: THREE.Mesh[] = [];
             object.traverse((child) => {
                 if ((child as THREE.Mesh).isMesh) meshes.push(child as THREE.Mesh);
             });
             const mesh = meshes[primitive.primitive];
             if (!mesh || Array.isArray(mesh.material)) {
-                return { painted, reason: `«${primitive.name}» no es una malla simple` };
+                return { painted, reason: `«${primitive.name}» no es una malla simple`, peak };
             }
             const runtime = mesh.geometry.attributes.position.count;
             if (runtime !== primitive.count) {
-                return { painted, reason: `«${primitive.name}»: ${runtime} vértices en el .glb, ${primitive.count} en el JSON` };
+                return {
+                    painted,
+                    reason: `«${primitive.name}»: ${runtime} vértices en el .glb, ${primitive.count} en el JSON`,
+                    peak,
+                };
             }
 
             const colours = new Float32Array(primitive.count * 3);
             const colour = new THREE.Color();
             for (let index = 0; index < primitive.count; index += 1) {
-                colourFor(slice[index] / 255, colour);
+                colourFor(slice[index] / referencia, colour);
                 colours[index * 3] = colour.r;
                 colours[index * 3 + 1] = colour.g;
                 colours[index * 3 + 2] = colour.b;
@@ -154,19 +243,19 @@ function paintBlades(scene: THREE.Object3D, bake: BladeBake, caseName: string): 
             // y con `vertexColors` encima el resultado sale oscurecido (el color de
             // vértice multiplica al del material). Aquí se sustituye del todo para
             // que se vea el color del FEM tal cual.
-            const material = new THREE.MeshStandardMaterial({
+            const previous = mesh.material as THREE.Material;
+            mesh.material = new THREE.MeshStandardMaterial({
                 vertexColors: true,
                 roughness: 0.62,
                 metalness: 0.08,
-                side: (mesh.material as THREE.Material).side,
-                transparent: (mesh.material as THREE.Material).transparent,
-                opacity: (mesh.material as THREE.Material).opacity,
+                side: previous.side,
+                transparent: previous.transparent,
+                opacity: previous.opacity,
             });
-            mesh.material = material;
             painted += 1;
         }
     }
-    return { painted, reason: null };
+    return { painted, reason: null, peak };
 }
 
 /** Quita el color y devuelve los materiales originales. */
@@ -420,6 +509,18 @@ export function RotorFemPage() {
     const [twinFile, setTwinFile] = useState<string>(TWIN_FILES[0]);
 
     const [caseName, setCaseName] = useState<string | null>(null);
+    const [mode, setMode] = useState<LoadMode>('centripetal');
+    /** Escala del caso centrípeto: 1 = caso unitario, 5 = el máximo pedido. */
+    const [amplification, setAmplification] = useState(1);
+    /** ω objetivo del caso tangencial, en rad/s. */
+    const [omegaTarget, setOmegaTarget] = useState(OMEGA_REF);
+    /** ω real, que persigue a la objetivo con la inercia que se elija. */
+    const [omega, setOmega] = useState(OMEGA_REF);
+    /** Constante de tiempo de la inercia, en segundos. */
+    const [inertia, setInertia] = useState(0.8);
+    /** Inclinación de la plataforma (grados, XYZ) para repartir la gravedad. */
+    const [gravityAngles, setGravityAngles] = useState<[number, number, number]>([0, 0, 0]);
+    const [paintedPeak, setPaintedPeak] = useState(0);
     const [anchor, setAnchor] = useState<Anchor>(DEFAULT_ANCHOR);
     const [wireframe, setWireframe] = useState(false);
     const [opacity, setOpacity] = useState(0.85);
@@ -431,6 +532,37 @@ export function RotorFemPage() {
         painted: 0,
         reason: null,
     });
+    /** Peso del caso tangencial que sale de la inercia: α = (ω_obj − ω)/τ. */
+    const alpha = (omegaTarget - omega) / Math.max(0.05, inertia);
+
+    /**
+     * Persecución de ω con inercia de primer orden.
+     *
+     * A 12 Hz y no por frame: repintar 60.200 vértices × 3 palas a 60 fps no aporta
+     * nada visual y calienta la máquina para nada.
+     */
+    useEffect(() => {
+        if (mode !== 'tangential') {
+            setOmega(omegaTarget);
+            return;
+        }
+        const timer = window.setInterval(() => {
+            setOmega((current) => {
+                const step = 0.08 / Math.max(0.05, inertia);
+                const next = current + (omegaTarget - current) * Math.min(1, step);
+                return Math.abs(next - omegaTarget) < 1e-3 ? omegaTarget : next;
+            });
+        }, 80);
+        return () => window.clearInterval(timer);
+    }, [mode, omegaTarget, inertia]);
+
+    /** Casos base que se combinan con qué peso, según el modo elegido. */
+    const weights = useMemo<Weights>(() => {
+        if (mode === 'unit') return caseName ? { [caseName]: 1 } : {};
+        if (mode === 'centripetal') return { 'blade-centripetal': amplification };
+        if (mode === 'tangential') return { 'blade-tangential': Math.abs(alpha) / ALPHA_REF };
+        return gravityWeights(gravityAngles);
+    }, [mode, caseName, amplification, alpha, gravityAngles]);
     const [colourScale, setColourScale] = useState<number | null>(null);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -440,6 +572,29 @@ export function RotorFemPage() {
     const bake = useJson<BladeBake>(
         twinFile === 'OC4.glb' ? `${FEM_BASE}/blade-glb.json` : `${FEM_BASE}/blade-glb-modal.json`
     );
+
+    /**
+     * Escala fija del mapa de color por modo: el valor que se pinta como rojo.
+     *
+     * Centrífuga y tangencial se escalan al máximo del deslizador (5×) y gravedad a
+     * la suma de los tres casos (que es el máximo teórico al 100 % en cada eje).
+     */
+    const paintScale = useMemo(() => {
+        const data = bake.data;
+        if (!data) return 0;
+        const casePeak = (name: string) => {
+            const entry = data.cases[name];
+            if (!entry) return 0;
+            return Math.max(0, ...Object.values(entry.peaks));
+        };
+        if (mode === 'centripetal') return 5 * casePeak('blade-centripetal');
+        if (mode === 'tangential') return 5 * casePeak('blade-tangential');
+        if (mode === 'gravity') {
+            return casePeak('blade-x') + casePeak('blade-y') + casePeak('blade-z');
+        }
+        return caseName ? casePeak(caseName) : 0;
+    }, [bake.data, mode, caseName]);
+
 
     // El `.glb` se carga a mano (no con `useGLTF`) porque el árbol vive **fuera**
     // del `<Canvas>`, y los hooks de R3F solo existen dentro.
@@ -521,25 +676,28 @@ export function RotorFemPage() {
         return mesh.data;
     }, [current.data, mesh.data]);
 
-    const peak = colourScale ?? current.data?.stats.max ?? 1;
+    const peak = colourScale ?? paintScale ?? current.data?.stats.max ?? 1;
 
     // Pintar el gemelo: se quita siempre antes, para que cambiar de caso o
     // apagar la casilla no deje colores viejos pegados.
     useEffect(() => {
         if (!gltf) return;
         unpaintBlades(gltf);
-        setPainted(
-            paint && bake.data && caseName
-                ? paintBlades(gltf, bake.data, caseName)
-                : { painted: 0, reason: null }
-        );
-    }, [gltf, paint, caseName, bake.data]);
+        if (!paint || !bake.data) {
+            setPainted({ painted: 0, reason: null });
+            setPaintedPeak(0);
+            return;
+        }
+        const result = paintBlades(gltf, bake.data, weights, colourScale ?? paintScale);
+        setPainted({ painted: result.painted, reason: result.reason });
+        setPaintedPeak(result.peak);
+    }, [gltf, paint, bake.data, weights, paintScale, colourScale]);
 
-    // Después de pintar, porque pintar cambia los materiales (los clona).
+    // Después de pintar, porque pintar cambia los materiales.
     useEffect(() => {
         if (!gltf) return;
         applyTwinOpacity(gltf, twinOpacity);
-    }, [gltf, twinOpacity, paint, caseName, bake.data]);
+    }, [gltf, twinOpacity, paint, bake.data, weights, paintScale, colourScale]);
 
     const residual = bake.data?.blades.base?.icp;
 
@@ -557,10 +715,10 @@ export function RotorFemPage() {
                     </p>
                 </header>
 
-                {/* Caso */}
+                {/* Casos de carga */}
                 <section className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
                     <h2 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                        Caso de carga
+                        Casos de carga
                     </h2>
                     {index.error ? (
                         <p className="text-[11px] text-amber-300">
@@ -568,49 +726,200 @@ export function RotorFemPage() {
                             <code>python scripts/fem-to-json.py</code>.
                         </p>
                     ) : (
-                        <div className="flex flex-wrap gap-1">
-                            {(index.data?.cases ?? []).map((entry) => (
-                                <button
-                                    key={entry.case}
-                                    type="button"
-                                    onClick={() => {
-                                        setCaseName(entry.case);
-                                        setColourScale(null);
-                                    }}
-                                    className={`rounded border px-2 py-1 text-[10px] transition ${
-                                        entry.case === caseName
-                                            ? 'border-sky-400/60 bg-sky-400/10 text-slate-100'
-                                            : 'border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.07]'
-                                    }`}
-                                >
-                                    {entry.case.replace(/^blade-/, '')}
-                                </button>
-                            ))}
-                        </div>
+                        <>
+                            <div className="flex flex-wrap gap-1">
+                                {(
+                                    [
+                                        ['unit', 'unitarios'],
+                                        ['centripetal', 'centrífuga'],
+                                        ['tangential', 'tangencial'],
+                                        ['gravity', 'gravedad xyz'],
+                                    ] as const
+                                ).map(([id, label]) => (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        onClick={() => {
+                                            // En tangencial se arranca desde parado: la carga
+                                            // existe mientras acelera, así que si ω ya vale lo
+                                            // que el objetivo no se vería nada.
+                                            if (id === 'tangential') setOmega(0);
+                                            else setOmega(omegaTarget);
+                                            // Cada modo tiene su propia escala buena: se vuelve
+                                            // a la automática para no heredar la del anterior.
+                                            setColourScale(null);
+                                            setMode(id);
+                                        }}
+                                        className={`rounded border px-2 py-1 text-[10px] transition ${
+                                            mode === id
+                                                ? 'border-sky-400/60 bg-sky-400/10 text-slate-100'
+                                                : 'border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.07]'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {mode === 'unit' ? (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                    {(index.data?.cases ?? []).map((entry) => (
+                                        <button
+                                            key={entry.case}
+                                            type="button"
+                                            onClick={() => setCaseName(entry.case)}
+                                            className={`rounded border px-2 py-1 text-[10px] transition ${
+                                                entry.case === caseName
+                                                    ? 'border-sky-400/60 bg-sky-400/10 text-slate-100'
+                                                    : 'border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.07]'
+                                            }`}
+                                        >
+                                            {entry.case.replace(/^blade-/, '')}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null}
+
+                            {mode === 'centripetal' ? (
+                                <div className="mt-2 space-y-1">
+                                    <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                                        <span className="w-20 shrink-0">escala</span>
+                                        <input
+                                            type="range"
+                                            min={0.25}
+                                            max={5}
+                                            step={0.05}
+                                            value={amplification}
+                                            onChange={(event) => setAmplification(Number(event.target.value))}
+                                            className="flex-1"
+                                        />
+                                        <span className="w-12 text-right font-mono text-slate-300">
+                                            {amplification.toFixed(2)}×
+                                        </span>
+                                    </label>
+                                    <p className="text-[10px] leading-relaxed text-slate-600">
+                                        Carga triangular (0 en el buje, 1 en la punta) escalada por
+                                        ω²·r. Referencia a 1 m/s² en la punta: ω ≈{' '}
+                                        <span className="font-mono text-slate-400">
+                                            {(OMEGA_REF * Math.sqrt(amplification)).toFixed(2)} rad/s
+                                        </span>{' '}
+                                        ({((OMEGA_REF * Math.sqrt(amplification) * 60) / (2 * Math.PI)).toFixed(1)}{' '}
+                                        rpm). 5× es el máximo que se puede pintar.
+                                    </p>
+                                </div>
+                            ) : null}
+
+                            {mode === 'tangential' ? (
+                                <div className="mt-2 space-y-1">
+                                    <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                                        <span className="w-20 shrink-0">ω objetivo</span>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={6}
+                                            step={0.05}
+                                            value={omegaTarget}
+                                            onChange={(event) => setOmegaTarget(Number(event.target.value))}
+                                            className="flex-1"
+                                        />
+                                        <span className="w-12 text-right font-mono text-slate-300">
+                                            {omegaTarget.toFixed(2)}
+                                        </span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                                        <span className="w-20 shrink-0">inercia τ</span>
+                                        <input
+                                            type="range"
+                                            min={0.1}
+                                            max={3}
+                                            step={0.05}
+                                            value={inertia}
+                                            onChange={(event) => setInertia(Number(event.target.value))}
+                                            className="flex-1"
+                                        />
+                                        <span className="w-12 text-right font-mono text-slate-300">
+                                            {inertia.toFixed(2)} s
+                                        </span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => setOmega(0)}
+                                        className="rounded border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] text-slate-300 hover:bg-white/[0.07]"
+                                    >
+                                        repetir el arranque (ω = 0)
+                                    </button>
+                                    <p className="text-[10px] leading-relaxed text-slate-600">
+                                        ω actual{' '}
+                                        <span className="font-mono text-slate-400">{omega.toFixed(2)} rad/s</span> · α
+                                        = Δω/τ{' '}
+                                        <span className="font-mono text-slate-400">
+                                            {Math.abs(alpha).toFixed(2)} rad/s²
+                                        </span>{' '}
+                                        = {(Math.abs(alpha) / ALPHA_REF).toFixed(2)}× el caso unitario. Con ω
+                                        estable, α→0 y el mapa se apaga: la carga tangencial es la
+                                        aceleración, no la velocidad.
+                                    </p>
+                                </div>
+                            ) : null}
+
+                            {mode === 'gravity' ? (
+                                <div className="mt-2 space-y-1">
+                                    {(['balanceo', 'cabeceo', 'guiñada'] as const).map((label, axis) => (
+                                        <label
+                                            key={label}
+                                            className="flex items-center gap-2 text-[11px] text-slate-400"
+                                        >
+                                            <span className="w-20 shrink-0">{label}</span>
+                                            <input
+                                                type="range"
+                                                min={-90}
+                                                max={90}
+                                                step={5}
+                                                value={gravityAngles[axis as 0 | 1 | 2]}
+                                                onChange={(event) => {
+                                                    const value = Number(event.target.value);
+                                                    setGravityAngles((previous) => {
+                                                        const next: [number, number, number] = [...previous];
+                                                        next[axis as 0 | 1 | 2] = value;
+                                                        return next;
+                                                    });
+                                                }}
+                                                className="flex-1"
+                                            />
+                                            <span className="w-12 text-right font-mono text-slate-300">
+                                                {gravityAngles[axis as 0 | 1 | 2]}°
+                                            </span>
+                                        </label>
+                                    ))}
+                                    <p className="text-[10px] leading-relaxed text-slate-600">
+                                        La gravedad se reparte entre los tres casos con los cosenos:{' '}
+                                        {(['blade-x', 'blade-y', 'blade-z'] as const)
+                                            .map(
+                                                (name) =>
+                                                    `${name.slice(-1)} ${Math.round(
+                                                        (weights[name] ?? 0) * 100
+                                                    )}%`
+                                            )
+                                            .join(' · ')}
+                                    </p>
+                                </div>
+                            ) : null}
+
+                            <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
+                                <dt>pico pintado</dt>
+                                <dd className="text-right font-mono text-slate-300">
+                                    {formatMetres(paintedPeak)}
+                                </dd>
+                                <dt>casos activos</dt>
+                                <dd className="text-right font-mono text-slate-300">
+                                    {Object.values(weights).filter((weight) => weight > 0).length}
+                                </dd>
+                            </dl>
+                            {current.error ? (
+                                <p className="mt-2 text-[11px] text-amber-300">Error: {current.error}</p>
+                            ) : null}
+                        </>
                     )}
-                    {current.data ? (
-                        <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
-                            <dt>nodos</dt>
-                            <dd className="text-right font-mono text-slate-300">
-                                {current.data.nodeCount}
-                            </dd>
-                            <dt>|u| máx</dt>
-                            <dd className="text-right font-mono text-slate-300">
-                                {(current.data.stats.max * 1e9).toFixed(1)} nm
-                            </dd>
-                            <dt>|u| p95</dt>
-                            <dd className="text-right font-mono text-slate-300">
-                                {(current.data.stats.p95 * 1e9).toFixed(1)} nm
-                            </dd>
-                            <dt>frame</dt>
-                            <dd className="text-right font-mono text-slate-300">
-                                {current.data.alignedTo ? 'común' : 'propio'}
-                            </dd>
-                        </dl>
-                    ) : null}
-                    {current.error ? (
-                        <p className="mt-2 text-[11px] text-amber-300">Error: {current.error}</p>
-                    ) : null}
                 </section>
 
                 {/* Anclaje */}
@@ -759,6 +1068,14 @@ export function RotorFemPage() {
                                 onChange={(event) => setColourScale(Number(event.target.value))}
                                 className="w-full rounded border border-white/10 bg-white/[0.03] px-2 py-1 text-right font-mono text-[11px] text-slate-200 outline-none focus:border-sky-400/60"
                             />
+                            <button
+                                type="button"
+                                onClick={() => setColourScale(null)}
+                                title="volver a la escala automática del modo"
+                                className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-1 text-[10px] text-slate-400 hover:bg-white/[0.07]"
+                            >
+                                auto
+                            </button>
                         </label>
                         <div className="flex items-center gap-1 pt-1">
                             <span className="h-2 flex-1 rounded-l bg-[hsl(238,85%,50%)]" />
@@ -767,7 +1084,9 @@ export function RotorFemPage() {
                             <span className="h-2 flex-1 bg-[hsl(60,85%,50%)]" />
                             <span className="h-2 flex-1 rounded-r bg-[hsl(0,85%,50%)]" />
                         </div>
-                        <p className="text-[10px] text-slate-600">0 → |u| máx</p>
+                        <p className="text-[10px] text-slate-600">
+                            0 → {formatMetres(peak)} (escala {colourScale === null ? 'automática del modo' : 'manual'})
+                        </p>
                     </div>
                 </section>
 
