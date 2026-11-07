@@ -92,7 +92,7 @@ function colourForSigned(value: number, target: THREE.Color): THREE.Color {
     const fuerza = Math.abs(t);
     // El cero es un gris medio, no un blanco: con el casi-blanco las zonas neutras
     // (casi toda la pala) se confundían con el material sin pintar del gemelo.
-    return target.setHSL(t >= 0 ? 0 : 0.6, 0.12 + 0.78 * fuerza, 0.6 - 0.16 * fuerza);
+    return target.setHSL(t >= 0 ? 0 : 0.6, 0.25 + 0.65 * fuerza, 0.56 - 0.12 * fuerza);
 }
 
 /** int8 en base64 (los componentes con signo). */
@@ -1228,6 +1228,41 @@ export function RotorFemPage() {
     const escalaMin = scaleRange?.min ?? staticRange.min;
     const escalaMax = scaleRange?.max ?? staticRange.max;
 
+    /**
+     * Gradiente del colorbar **tal y como está mapeando ahora**.
+     *
+     * Fuera de las manijas el color va saturado (todo azul a la izquierda del
+     * azul, todo rojo a la derecha del rojo) y solo entre ellas se interpola. Con
+     * un gradiente fijo el colorbar mentía: parecía que la escala seguía entera
+     * aunque las manijas estuvieran juntas.
+     */
+    const gradientCss = useMemo(() => {
+        const total = staticRange.max - staticRange.min;
+        if (!(total > 0)) return 'linear-gradient(90deg, #334155, #334155)';
+        const pos = (value: number) =>
+            Math.max(0, Math.min(100, ((value - staticRange.min) / total) * 100));
+        const zero = Math.max(0, Math.min(100, ((0 - staticRange.min) / total) * 100));
+        const left = pos(escalaMin);
+        const right = pos(escalaMax);
+        if (field === 'signed') {
+            const centro = Math.max(left, Math.min(right, zero));
+            return `linear-gradient(90deg,
+                hsl(216,85%,52%) 0%,
+                hsl(216,85%,52%) ${left}%,
+                hsl(216,25%,70%) ${centro}%,
+                hsl(0,85%,52%) ${right}%,
+                hsl(0,85%,52%) 100%)`.replace(/\s+/g, ' ');
+        }
+        return `linear-gradient(90deg,
+            hsl(238,85%,50%) 0%,
+            hsl(238,85%,50%) ${left}%,
+            hsl(178,85%,50%) ${left + (right - left) * 0.25}%,
+            hsl(119,85%,50%) ${left + (right - left) * 0.5}%,
+            hsl(60,85%,50%) ${left + (right - left) * 0.75}%,
+            hsl(0,85%,50%) ${right}%,
+            hsl(0,85%,50%) 100%)`.replace(/\s+/g, ' ');
+    }, [staticRange, escalaMin, escalaMax, field]);
+
     // Pintar el gemelo: se quita siempre antes, para que cambiar de caso o
     // apagar la casilla no deje colores viejos pegados.
     useEffect(() => {
@@ -1555,11 +1590,8 @@ export function RotorFemPage() {
                                     múltiplo del rango real, que es el valor automático. */}
                                 <div className="dual-range mt-1">
                                     <div
-                                        className={`pointer-events-none absolute inset-x-0 top-[3px] h-2 rounded ${
-                                            field === 'signed'
-                                                ? 'bg-[linear-gradient(90deg,hsl(216,85%,52%),hsl(216,25%,80%),hsl(0,25%,80%),hsl(0,85%,52%))]'
-                                                : 'bg-[linear-gradient(90deg,hsl(238,85%,50%),hsl(178,85%,50%),hsl(119,85%,50%),hsl(60,85%,50%),hsl(0,85%,50%))]'
-                                        }`}
+                                        className="pointer-events-none absolute inset-x-0 top-[3px] h-2 rounded"
+                                        style={{ backgroundImage: gradientCss }}
                                     />
                                     {/* Los dos extremos son **valores absolutos** y el recorrido
                                         es el del análisis: el pulgar en su tope = escala
@@ -1603,8 +1635,8 @@ export function RotorFemPage() {
                                 </div>
                                 <div className="mt-1 flex items-center justify-between text-[10px] text-slate-600">
                                     <span>
-                                        escala {scaleRange === null ? 'del análisis' : 'manual'} · 100 % =
-                                        caso unitario ={' '}
+                                        escala {scaleRange === null ? 'del análisis' : 'manual'} · fuera de
+                                        las manijas satura · 100 % ={' '}
                                         <span className="font-mono">{formatMetres(paintScale)}</span>
                                     </span>
                                     <span className="flex items-center gap-2">
