@@ -87,17 +87,24 @@ function colourFor(value: number, target: THREE.Color): THREE.Color {
  * En el cero el color se lava a gris en vez de saltar de un extremo al otro, que
  * es lo que hace la paleta secuencial si se le mete un valor negativo.
  */
+/** Verde claro del neutro del mapa con signo (hue 0,33 · s 45 % · l 72 %). */
+const NEUTRAL_HUE = 0.33;
+
 function colourForSigned(value: number, target: THREE.Color): THREE.Color {
     const t = Math.min(1, Math.max(-1, value));
     const fuerza = Math.abs(t);
-    // Azul → **blanco** → rojo, igual que el colorbar. La saturación sube deprisa
-    // (exponente < 1) para que los valores pequeños ya se vean con color y no se
-    // confundan con el material blanco del gemelo.
-    return target.setHSL(
+    // Azul → **verde claro** → rojo. El neutro era blanco puro y se confundía con el
+    // material del gemelo (parecía que la pala no estaba pintada); el verde se
+    // distingue del casco y de los dos extremos. El tono se interpola, así que el
+    // paso por cian (hacia el azul) y por amarillo (hacia el rojo) es continuo.
+    const tono = THREE.MathUtils.lerp(
+        NEUTRAL_HUE,
         t >= 0 ? 0 : 0.6,
-        Math.min(1, 0.9 * Math.pow(fuerza, 0.55)),
-        0.93 - 0.43 * Math.pow(fuerza, 0.7)
+        Math.pow(fuerza, 0.6)
     );
+    const saturacion = THREE.MathUtils.lerp(0.55, 0.95, fuerza);
+    const luz = THREE.MathUtils.lerp(0.66, 0.46, fuerza);
+    return target.setHSL(tono, saturacion, luz);
 }
 
 /** int8 en base64 (los componentes con signo). */
@@ -1264,7 +1271,7 @@ export function RotorFemPage() {
             // de azul a rojo sin pasar por blanco (igual que el campo).
             const conBlanco = left <= zero && zero <= right;
             const paradas = conBlanco
-                ? `hsl(216,85%,52%) 0%, hsl(216,85%,52%) ${left}%, hsl(0,0%,100%) ${zero}%, hsl(0,85%,52%) ${right}%, hsl(0,85%,52%) 100%`
+                ? `hsl(216,85%,52%) 0%, hsl(216,85%,52%) ${left}%, hsl(119,55%,66%) ${zero}%, hsl(0,85%,52%) ${right}%, hsl(0,85%,52%) 100%`
                 : `hsl(216,85%,52%) 0%, hsl(216,85%,52%) ${left}%, hsl(0,85%,52%) ${right}%, hsl(0,85%,52%) 100%`;
             return `linear-gradient(90deg, ${paradas})`.replace(/\s+/g, ' ');
         }
