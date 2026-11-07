@@ -461,11 +461,21 @@ function paintBlades(
     // que dejaba medio mapa pegado al gris.
     const scaleMin = range?.min ?? Math.min(min, 0);
     const scaleMax = range?.max ?? max;
-    const abajo = scaleMin < 0 ? Math.abs(scaleMin) : 0;
-    /** Divergente: −1 en `scaleMin`, 0 en el cero del campo, +1 en `scaleMax`. */
-    const normSigned = (value: number) =>
-        value >= 0 ? (scaleMax > 0 ? value / scaleMax : 0) : abajo > 0 ? value / abajo : 0;
     const span = scaleMax - scaleMin;
+    /** Divergente: −1 en `scaleMin`, 0 en el cero del campo, +1 en `scaleMax`. */
+    const normSigned = (value: number) => {
+        if (scaleMin < 0 && scaleMax > 0) {
+            // El rango cruza el cero: cada mitad se escala con su manija y el blanco
+            // cae en el valor neutro, que es lo que se quiere en una divergente.
+            return value >= 0 ? value / scaleMax : value / -scaleMin;
+        }
+        // El rango **no** cruza el cero (las dos manijas del mismo signo). Aquí lo
+        // correcto es un degradado lineal del tramo: lo que quede por debajo del
+        // mínimo va azul y lo que quede por encima del máximo va rojo. Antes se
+        // devolvía 0 para todo lo del signo contrario y el mapa se quedaba blanco.
+        if (!(span > 0)) return 0;
+        return (2 * (value - scaleMin)) / span - 1;
+    };
     /** Secuencial: 0 en `scaleMin`, 1 en `scaleMax`. */
     const normLinear = (value: number) => (span > 0 ? (value - scaleMin) / span : 0);
 
@@ -1250,13 +1260,13 @@ export function RotorFemPage() {
         const left = pos(escalaMin);
         const right = pos(escalaMax);
         if (field === 'signed') {
-            const centro = Math.max(left, Math.min(right, zero));
-            return `linear-gradient(90deg,
-                hsl(216,85%,52%) 0%,
-                hsl(216,85%,52%) ${left}%,
-                hsl(0,0%,100%) ${centro}%,
-                hsl(0,85%,52%) ${right}%,
-                hsl(0,85%,52%) 100%)`.replace(/\s+/g, ' ');
+            // Si el cero cae dentro del tramo hay blanco en medio; si no, el tramo va
+            // de azul a rojo sin pasar por blanco (igual que el campo).
+            const conBlanco = left <= zero && zero <= right;
+            const paradas = conBlanco
+                ? `hsl(216,85%,52%) 0%, hsl(216,85%,52%) ${left}%, hsl(0,0%,100%) ${zero}%, hsl(0,85%,52%) ${right}%, hsl(0,85%,52%) 100%`
+                : `hsl(216,85%,52%) 0%, hsl(216,85%,52%) ${left}%, hsl(0,85%,52%) ${right}%, hsl(0,85%,52%) 100%`;
+            return `linear-gradient(90deg, ${paradas})`.replace(/\s+/g, ' ');
         }
         return `linear-gradient(90deg,
             hsl(238,85%,50%) 0%,
