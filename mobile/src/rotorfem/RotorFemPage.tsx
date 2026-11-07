@@ -101,6 +101,24 @@ function base64ToInt8(encoded: string): Int8Array {
     return new Int8Array(bytes.buffer, bytes.byteOffset, bytes.length);
 }
 
+/**
+ * Caché de los campos ya decodificados.
+ *
+ * `atob` más el bucle de `charCodeAt` son, con diferencia, lo más caro del
+ * repintado: 60.000 bytes por pala, caso y componente, y con el rotor girando
+ * esto se llama nueve veces por segundo. Decodificar una vez deja el repintado en
+ * unos pocos milisegundos.
+ */
+const FIELD_CACHE = new Map<string, Uint8Array | Int8Array>();
+
+function cachedBytes(key: string, decode: () => Uint8Array | Int8Array): Uint8Array | Int8Array {
+    const hit = FIELD_CACHE.get(key);
+    if (hit) return hit;
+    const value = decode();
+    FIELD_CACHE.set(key, value);
+    return value;
+}
+
 /* ------------------------------------------------------- casos de carga */
 
 /**
@@ -211,6 +229,83 @@ function base64ToBytes(encoded: string): Uint8Array {
  * el recuento de vértices deja de cuadrar y se descarta en vez de pintar basura).
  */
 /**
+ * Prepara una malla de pala para pintarla **suave**.
+ *
+ * El `.glb` trae las palas casi sin indexar (20.216 vértices para 10.632
+ * triángulos), así que cada triángulo tiene sus propios vértices con su normal y
+ * su color. El resultado se ve a facetas: triángulos de colores y sombreado duro.
+ *
+ * Aquí se agrupan los vértices que están **en la misma posición** y se usa ese
+ * grupo para dos cosas: promediar el color (mapa continuo) y recalcular las
+ * normales como media de las caras que comparten el punto (sombreado liso). Se
+ * hace una sola vez por malla y se guarda en `userData`.
+ */
+function prepareBladeMesh(mesh: THREE.Mesh): void {
+    if (mesh.userData.__femPrepared) return;
+    const geometry = mesh.geometry;
+    const position = geometry.attributes.position as THREE.BufferAttribute | undefined;
+    const normal = geometry.attributes.normal as THREE.BufferAttribute | undefined;
+    if (!position) return;
+
+    const count = position.count;
+    const keyOf = (index: number) =>
+        `${Math.round(position.getX(index) * 1e5)}|${Math.round(position.getY(index) * 1e5)}|${Math.round(position.getZ(index) * 1e5)}`;
+
+    const porPosicion = new Map<string, number[]>();
+    const claves: string[] = new Array(count);
+    for (let index = 0; index < count; index += 1) {
+        const key = keyOf(index);
+        claves[index] = key;
+        const lista = porPosicion.get(key);
+        if (lista) lista.push(index);
+        else porPosicion.set(key, [index]);
+    }
+
+    if (normal) {
+        const suma = new Map<string, THREE.Vector3>();
+        const a = new THREE.Vector3();
+        const b = new THREE.Vector3();
+        const c = new THREE.Vector3();
+        const acumula = (i0: number, i1: number, i2: number) => {
+            a.fromBufferAttribute(position, i0);
+            b.fromBufferAttribute(position, i1);
+            c.fromBufferAttribute(position, i2);
+            const cara = new THREE.Vector3()
+                .subVectors(b, a)
+                .cross(new THREE.Vector3().subVectors(c, a));
+            if (cara.lengthSq() === 0) return;
+            for (const vertex of [i0, i1, i2]) {
+                const key = claves[vertex];
+                const previo = suma.get(key);
+                if (previo) previo.add(cara);
+                else suma.set(key, cara);
+            }
+        };
+
+        const index = geometry.index;
+        if (index) {
+            for (let triangle = 0; triangle < index.count; triangle += 3) {
+                acumula(index.getX(triangle), index.getX(triangle + 1), index.getX(triangle + 2));
+            }
+        } else {
+            for (let triangle = 0; triangle + 2 < count; triangle += 3) {
+                acumula(triangle, triangle + 1, triangle + 2);
+            }
+        }
+
+        for (let vertex = 0; vertex < count; vertex += 1) {
+            const total = suma.get(claves[vertex]);
+            if (!total || total.lengthSq() === 0) continue;
+            normal.setXYZ(vertex, total.x, total.y, total.z);
+        }
+        normal.needsUpdate = true;
+    }
+
+    mesh.userData.__femGroups = [...porPosicion.values()].filter((grupo) => grupo.length > 1);
+    mesh.userData.__femPrepared = true;
+}
+
+/**
  * Pinta el campo FEM **sobre las mallas de pala del propio `.glb`**.
  *
  * La superposición de cargas se hace bien: los casos de gravedad (`blade-x/y/z`)
@@ -231,7 +326,8 @@ function paintBlades(
     bake: BladeBake,
     weightFor: (bladeName: string) => Weights,
     range: { min: number; max: number } | null,
-    field: 'magnitude' | 'signed'
+    field: 'magnitude' | 'signed',
+    smooth: boolean
 ): {
     painted: number;
     reason: string | null;
@@ -286,9 +382,15 @@ function paintBlades(
                 const peakComponente = entry.vectorPeaks?.[bladeName] ?? 0;
                 if (!(peakComponente > 0)) continue;
                 const factor = (weight * peakComponente) / 127;
-                const cx = base64ToInt8(comps.x);
-                const cy = base64ToInt8(comps.y);
-                const cz = base64ToInt8(comps.z);
+                const cx = cachedBytes(`${caseName}|${bladeName}|x`, () =>
+                    base64ToInt8(comps.x)
+                ) as Int8Array;
+                const cy = cachedBytes(`${caseName}|${bladeName}|y`, () =>
+                    base64ToInt8(comps.y)
+                ) as Int8Array;
+                const cz = cachedBytes(`${caseName}|${bladeName}|z`, () =>
+                    base64ToInt8(comps.z)
+                ) as Int8Array;
                 const limite = Math.min(total, cx.length);
                 for (let index = 0; index < limite; index += 1) {
                     vx[index] += cx[index] * factor;
@@ -304,7 +406,9 @@ function paintBlades(
             if (!(weight > 0)) continue;
             const encoded = entry.values[bladeName];
             if (!encoded) continue;
-            const bytes = base64ToBytes(encoded);
+            const bytes = cachedBytes(`${caseName}|${bladeName}|m`, () =>
+                base64ToBytes(encoded)
+            ) as Uint8Array;
             const factor = (weight * (entry.peaks[bladeName] ?? 0)) / 255;
             const limite = Math.min(total, bytes.length);
             for (let index = 0; index < limite; index += 1) escalar[index] += bytes[index] * factor;
@@ -420,11 +524,36 @@ function paintBlades(
                 colours = new THREE.BufferAttribute(new Float32Array(primitive.count * 3), 3);
                 mesh.geometry.setAttribute('color', colours);
             }
+            prepareBladeMesh(mesh);
+
+            // Color **promediado** entre los vértices que comparten posición: sin
+            // esto cada triángulo tiene sus propios vértices y el mapa sale a
+            // facetas aunque el campo sea continuo. El buffer se reutiliza entre
+            // repintados: esto corre a 9 Hz mientras el rotor gira y reservar
+            // 20.000 flotantes por vuelta de pala se nota en el recolector.
+            let suave = slice;
+            const grupos = smooth ? (mesh.userData.__femGroups as number[][] | undefined) : undefined;
+            if (grupos && grupos.length > 0) {
+                let buffer = mesh.userData.__femSmooth as Float32Array | undefined;
+                if (!buffer || buffer.length !== primitive.count) {
+                    buffer = new Float32Array(primitive.count);
+                    mesh.userData.__femSmooth = buffer;
+                }
+                buffer.set(slice);
+                for (const grupo of grupos) {
+                    let suma = 0;
+                    for (const vertex of grupo) suma += slice[vertex];
+                    const media = suma / grupo.length;
+                    for (const vertex of grupo) buffer[vertex] = media;
+                }
+                suave = buffer;
+            }
+
             const array = colours.array as Float32Array;
             const colour = new THREE.Color();
             for (let index = 0; index < primitive.count; index += 1) {
                 const normalized =
-                    field === 'signed' ? normSigned(slice[index]) : normLinear(slice[index]);
+                    field === 'signed' ? normSigned(suave[index]) : normLinear(suave[index]);
                 if (field === 'signed') colourForSigned(normalized, colour);
                 else colourFor(normalized, colour);
                 array[index * 3] = colour.r;
@@ -785,6 +914,10 @@ export function RotorFemPage() {
      * máximo y el mínimo del propio análisis. Se fijan moviendo las manijas.
      */
     const [scaleRange, setScaleRange] = useState<{ min: number; max: number } | null>(null);
+    /** Promediar el color entre vértices que comparten posición (quita facetas). */
+    const [smooth, setSmooth] = useState(true);
+    /** Duración del último repintado, en ms. Con el rotor girando se ve el coste. */
+    const [paintMs, setPaintMs] = useState(0);
     const [anchor, setAnchor] = useState<Anchor>(DEFAULT_ANCHOR);
 
     /** Ángulo girado del rotor, en radianes. Lo escriben y leen los `useFrame`. */
@@ -1082,7 +1215,9 @@ export function RotorFemPage() {
             setPainted({ painted: 0, reason: null });
             return;
         }
-        const result = paintBlades(gltf, bake.data, weightFor, scaleRange, field);
+        const started = performance.now();
+        const result = paintBlades(gltf, bake.data, weightFor, scaleRange, field, smooth);
+        setPaintMs(performance.now() - started);
         setPainted({ painted: result.painted, reason: result.reason });
         // Solo se guarda si cambia de verdad: esto se ejecuta a 9 Hz mientras gira y
         // un `setState` por tick con el mismo valor dispara renders para nada.
@@ -1091,7 +1226,7 @@ export function RotorFemPage() {
                 ? [result.min, result.max]
                 : previous
         );
-    }, [gltf, paint, bake.data, weightFor, scaleRange, field]);
+    }, [gltf, paint, bake.data, weightFor, scaleRange, field, smooth]);
 
     // Al cambiar de gemelo (o desmontar) hay que devolver los materiales del anterior.
     useEffect(() => {
@@ -1383,35 +1518,17 @@ export function RotorFemPage() {
                                         </button>
                                     ))}
                                 </div>
-                                {/* Colorbar con sus dos extremos. Para el campo con signo
-                                    el cero va en medio, y el azul y el rojo se escalan por
-                                    separado (cada uno con su manija). */}
-                                {field === 'signed' ? (
-                                    <div className="mt-1 flex items-center gap-1 pt-1">
-                                        <span className="h-2 flex-1 rounded-l bg-[hsl(216,85%,52%)]" />
-                                        <span className="h-2 flex-1 bg-[hsl(216,25%,80%)]" />
-                                        <span className="h-2 flex-1 bg-[hsl(0,25%,80%)]" />
-                                        <span className="h-2 flex-1 rounded-r bg-[hsl(0,85%,52%)]" />
-                                    </div>
-                                ) : (
-                                    <div className="mt-1 flex items-center gap-1 pt-1">
-                                        <span className="h-2 flex-1 rounded-l bg-[hsl(238,85%,50%)]" />
-                                        <span className="h-2 flex-1 bg-[hsl(178,85%,50%)]" />
-                                        <span className="h-2 flex-1 bg-[hsl(119,85%,50%)]" />
-                                        <span className="h-2 flex-1 bg-[hsl(60,85%,50%)]" />
-                                        <span className="h-2 flex-1 rounded-r bg-[hsl(0,85%,50%)]" />
-                                    </div>
-                                )}
-                                <div className="flex justify-between font-mono text-[10px] text-slate-500">
-                                    <span>{formatMetres(escalaMin)}</span>
-                                    <span>{formatMetres(escalaMax)}</span>
-                                </div>
-
-                                {/* Las dos manijas: la izquierda fija el azul, la derecha el
-                                    rojo. Van en múltiplo del rango real, que es el valor
-                                    automático. */}
-                                <label className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
-                                    <span className="w-14 shrink-0 text-sky-400">azul</span>
+                                {/* El propio colorbar lleva las dos manijas encima: la
+                                    izquierda fija el azul, la derecha el rojo. Van en
+                                    múltiplo del rango real, que es el valor automático. */}
+                                <div className="dual-range mt-1">
+                                    <div
+                                        className={`pointer-events-none absolute inset-x-0 top-[3px] h-2 rounded ${
+                                            field === 'signed'
+                                                ? 'bg-[linear-gradient(90deg,hsl(216,85%,52%),hsl(216,25%,80%),hsl(0,25%,80%),hsl(0,85%,52%))]'
+                                                : 'bg-[linear-gradient(90deg,hsl(238,85%,50%),hsl(178,85%,50%),hsl(119,85%,50%),hsl(60,85%,50%),hsl(0,85%,50%))]'
+                                        }`}
+                                    />
                                     <input
                                         type="range"
                                         min={0.1}
@@ -1419,20 +1536,14 @@ export function RotorFemPage() {
                                         step={0.05}
                                         disabled={!(autoRange[0] < 0)}
                                         value={factorMin}
+                                        aria-label="extremo azul"
                                         onChange={(event) =>
                                             setScaleRange({
                                                 min: autoRange[0] * Number(event.target.value),
                                                 max: escalaMax,
                                             })
                                         }
-                                        className="flex-1 disabled:opacity-30"
                                     />
-                                    <span className="w-16 text-right font-mono text-slate-300">
-                                        {autoRange[0] < 0 ? formatMetres(escalaMin) : '—'}
-                                    </span>
-                                </label>
-                                <label className="flex items-center gap-2 text-[11px] text-slate-400">
-                                    <span className="w-14 shrink-0 text-rose-400">rojo</span>
                                     <input
                                         type="range"
                                         min={0.1}
@@ -1440,31 +1551,43 @@ export function RotorFemPage() {
                                         step={0.05}
                                         disabled={!(autoRange[1] > 0)}
                                         value={factorMax}
+                                        aria-label="extremo rojo"
                                         onChange={(event) =>
                                             setScaleRange({
                                                 min: escalaMin,
                                                 max: autoRange[1] * Number(event.target.value),
                                             })
                                         }
-                                        className="flex-1 disabled:opacity-30"
                                     />
-                                    <span className="w-16 text-right font-mono text-slate-300">
-                                        {autoRange[1] > 0 ? formatMetres(escalaMax) : '—'}
-                                    </span>
-                                </label>
+                                </div>
+                                <div className="flex justify-between font-mono text-[10px] text-slate-500">
+                                    <span>{formatMetres(escalaMin)}</span>
+                                    <span>{formatMetres(escalaMax)}</span>
+                                </div>
                                 <div className="mt-1 flex items-center justify-between text-[10px] text-slate-600">
                                     <span>
                                         escala {scaleRange === null ? 'automática' : 'manual'} · 100 % =
                                         caso unitario ={' '}
                                         <span className="font-mono">{formatMetres(paintScale)}</span>
                                     </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => setScaleRange(null)}
-                                        className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-white/[0.07]"
-                                    >
-                                        auto
-                                    </button>
+                                    <span className="flex items-center gap-2">
+                                        <label className="flex items-center gap-1 text-slate-400">
+                                            <input
+                                                type="checkbox"
+                                                checked={smooth}
+                                                onChange={(event) => setSmooth(event.target.checked)}
+                                            />
+                                            suavizar
+                                        </label>
+                                        <span className="font-mono text-slate-500">{paintMs.toFixed(1)} ms</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setScaleRange(null)}
+                                            className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-white/[0.07]"
+                                        >
+                                            auto
+                                        </button>
+                                    </span>
                                 </div>
                             </div>
                             <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
