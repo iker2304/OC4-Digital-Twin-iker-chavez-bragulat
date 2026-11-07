@@ -9,6 +9,7 @@
         "sync:ort": "node scripts/sync-ort.mjs",
         "postinstall": "node scripts/sync-ort.mjs",
         "fem:json": "python scripts/fem-to-json.py",
+        "fem:bake": "python scripts/fem-bake-blade.py",
         "predev": "node scripts/sync-models.mjs",
         "dev": "vite --host",
         "dev:https": "node scripts/dev-variant.mjs --https",

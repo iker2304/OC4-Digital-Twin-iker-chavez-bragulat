@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { TWIN_MODEL_URL, withBase } from '../lib/env';
 import { buildTree, type TreeNode } from './glbTree';
-import { DEFAULT_ANCHOR, type Anchor, type FemCase, type FemIndex, type FemMesh } from './types';
+import { DEFAULT_ANCHOR, type Anchor, type BladeBake, type FemCase, type FemIndex, type FemMesh } from './types';
 
 const FEM_BASE = withBase('/rotor-fem');
 
@@ -79,6 +79,99 @@ function useJson<T>(url: string | null): { data: T | null; error: string | null 
 function colourFor(value: number, target: THREE.Color): THREE.Color {
     const t = Math.min(1, Math.max(0, value));
     return target.setHSL(0.66 * (1 - t), 0.85, 0.5 + 0.08 * t);
+}
+
+/** base64 → bytes. `atob` devuelve binario, no hay UTF-8 de por medio. */
+function base64ToBytes(encoded: string): Uint8Array {
+    const binary = atob(encoded);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+}
+
+/**
+ * Pinta `|u|` interpolado **sobre las mallas de pala del propio `.glb`**.
+ *
+ * Es lo contrario de superponer la malla del solver: aquí no se aсtúa la
+ * geometría para nada, solo se le añade un atributo de color. El resultado
+ * coincide con el gemelo al 100 % porque *es* el gemelo.
+ *
+ * Devuelve cuántas primitivas se pintaron (0 si el `.glb` no es el que se horneó:
+ * el recuento de vértices deja de cuadrar y se descarta en vez de pintar basura).
+ */
+function paintBlades(scene: THREE.Object3D, bake: BladeBake, caseName: string): { painted: number; reason: string | null } {
+    const entry = bake.cases[caseName];
+    if (!entry) return { painted: 0, reason: `el JSON no tiene el caso ${caseName}` };
+
+    // three.js **sanea** los nombres al cargar el glTF (`MeshBody1 (2)` llega como
+    // `MeshBody1_(2)`), así que no se puede buscar por el nombre del fichero: se
+    // comparan las dos cadenas sin espacios ni signos.
+    const normalize = (name: string) => name.replace(/[^0-9a-z]/gi, '').toLowerCase();
+    const byName = new Map<string, THREE.Object3D>();
+    scene.traverse((child) => {
+        const key = normalize(child.name);
+        if (key && !byName.has(key)) byName.set(key, child);
+    });
+
+    let painted = 0;
+    for (const [bladeName, blade] of Object.entries(bake.blades)) {
+        const encoded = entry.values[bladeName];
+        if (!encoded) continue;
+        const values = base64ToBytes(encoded);
+        let offset = 0;
+
+        for (const primitive of blade.primitives) {
+            const slice = values.subarray(offset, offset + primitive.count);
+            offset += primitive.count;
+
+            const object = byName.get(normalize(primitive.name));
+            if (!object) return { painted, reason: `no encuentro el nodo «${primitive.name}»` };
+            const meshes: THREE.Mesh[] = [];
+            object.traverse((child) => {
+                if ((child as THREE.Mesh).isMesh) meshes.push(child as THREE.Mesh);
+            });
+            const mesh = meshes[primitive.primitive];
+            if (!mesh || Array.isArray(mesh.material)) {
+                return { painted, reason: `«${primitive.name}» no es una malla simple` };
+            }
+            const runtime = mesh.geometry.attributes.position.count;
+            if (runtime !== primitive.count) {
+                return { painted, reason: `«${primitive.name}»: ${runtime} vértices en el .glb, ${primitive.count} en el JSON` };
+            }
+
+            const colours = new Float32Array(primitive.count * 3);
+            const colour = new THREE.Color();
+            for (let index = 0; index < primitive.count; index += 1) {
+                colourFor(slice[index] / 255, colour);
+                colours[index * 3] = colour.r;
+                colours[index * 3 + 1] = colour.g;
+                colours[index * 3 + 2] = colour.b;
+            }
+            mesh.geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+
+            if (!mesh.userData.__femMaterial) mesh.userData.__femMaterial = mesh.material;
+            const material = (mesh.material as THREE.MeshStandardMaterial).clone();
+            material.vertexColors = true;
+            material.map = null;
+            material.needsUpdate = true;
+            mesh.material = material;
+            painted += 1;
+        }
+    }
+    return { painted, reason: null };
+}
+
+/** Quita el color y devuelve los materiales originales. */
+function unpaintBlades(scene: THREE.Object3D): void {
+    scene.traverse((child) => {
+        const original = child.userData.__femMaterial as THREE.Material | undefined;
+        if (!original) return;
+        const mesh = child as THREE.Mesh;
+        if (mesh.material !== original && !Array.isArray(mesh.material)) mesh.material.dispose();
+        mesh.material = original;
+        mesh.geometry.deleteAttribute('color');
+        delete child.userData.__femMaterial;
+    });
 }
 
 function BladeGeometry({
@@ -301,12 +394,18 @@ export function RotorFemPage() {
     const [opacity, setOpacity] = useState(0.85);
     const [showTwin, setShowTwin] = useState(true);
     const [showBlades, setShowBlades] = useState(true);
+    const [paint, setPaint] = useState(false);
+    const [painted, setPainted] = useState<{ painted: number; reason: string | null }>({
+        painted: 0,
+        reason: null,
+    });
     const [colourScale, setColourScale] = useState<number | null>(null);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
     const index = useJson<FemIndex>(`${FEM_BASE}/index.json`);
     const mesh = useJson<FemMesh>(`${FEM_BASE}/mesh.json`);
     const current = useJson<FemCase>(caseName ? `${FEM_BASE}/${caseName}.json` : null);
+    const bake = useJson<BladeBake>(`${FEM_BASE}/blade-glb.json`);
 
     // El `.glb` se carga a mano (no con `useGLTF`) porque el árbol vive **fuera**
     // del `<Canvas>`, y los hooks de R3F solo existen dentro.
@@ -389,6 +488,20 @@ export function RotorFemPage() {
     }, [current.data, mesh.data]);
 
     const peak = colourScale ?? current.data?.stats.max ?? 1;
+
+    // Pintar el gemelo: se quita siempre antes, para que cambiar de caso o
+    // apagar la casilla no deje colores viejos pegados.
+    useEffect(() => {
+        if (!gltf) return;
+        unpaintBlades(gltf);
+        setPainted(
+            paint && bake.data && caseName
+                ? paintBlades(gltf, bake.data, caseName)
+                : { painted: 0, reason: null }
+        );
+    }, [gltf, paint, caseName, bake.data]);
+
+    const residual = bake.data?.blades.base?.icp;
 
     return (
         <div className="flex min-h-screen flex-col bg-[#070b14] text-slate-200 lg:flex-row">
@@ -547,6 +660,24 @@ export function RotorFemPage() {
                             />
                             malla FEM
                         </label>
+                        <label className="flex items-center gap-2">
+                            <input
+                                type="checkbox"
+                                checked={paint}
+                                onChange={(event) => setPaint(event.target.checked)}
+                            />
+                            pintar las palas del gemelo
+                        </label>
+                        {paint ? (
+                            <p className="pl-5 text-[10px] leading-relaxed text-slate-500">
+                                {painted.painted > 0
+                                    ? `${painted.painted} primitivas con los resultados interpolados`
+                                    : `no pude pintar: ${painted.reason ?? 'el .glb no coincide con el horneado'}`}
+                                {residual
+                                    ? ` · desajuste de mallas: mediana ${(residual.median * 1e3).toFixed(1)} mm, p95 ${(residual.p95 * 1e3).toFixed(1)} mm`
+                                    : null}
+                            </p>
+                        ) : null}
                         <label className="flex items-center gap-2">
                             <input
                                 type="checkbox"

@@ -54,6 +54,49 @@ export interface FemIndex {
     cases: Array<{ case: string; nodeCount: number; max: number; p95: number }>;
 }
 
+/**
+ * `blade-glb.json` — los resultados FEM interpolados sobre **las mallas de pala
+ * del propio `.glb`** (lo genera `scripts/fem-bake-blade.py`).
+ *
+ * Así el mapa de color se pinta sobre la geometría que se ve, sin desajuste: la
+ * malla del solver solo se usa para calcular, no para dibujar.
+ */
+export interface BladePrimitive {
+    node: number;
+    name: string;
+    primitive: number;
+    count: number;
+    checksum: string;
+}
+
+export interface BladeBake {
+    glb: string;
+    blades: Record<
+        string,
+        {
+            nodes: string[];
+            vertexCount: number;
+            primitives: BladePrimitive[];
+            icp: {
+                median: number;
+                p95: number;
+                max: number;
+                fromReference: string | null;
+            };
+        }
+    >;
+    cases: Record<
+        string,
+        {
+            /** Valor real (m) que corresponde al 255 de cada pala. */
+            peaks: Record<string, number>;
+            /** 60.200 bytes por pala, en base64, en el orden de `blades[x].primitives`. */
+            values: Record<string, string>;
+            farNeighbour: Record<string, number>;
+        }
+    >;
+}
+
 /** Anclaje del rotor sobre el gemelo, en el frame del `.glb`. */
 export interface Anchor {
     /** Centro del rotor, en metros (frame de la escena, Y arriba). */
