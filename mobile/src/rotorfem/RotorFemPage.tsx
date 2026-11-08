@@ -1078,7 +1078,7 @@ export function RotorFemPage() {
     /** Inclinación de la plataforma; solo se aplica en el modo de gravedad. */
     const platformRotation = useMemo(
         () =>
-            (mode === 'gravity'
+            (mode === 'gravity' || mode === 'all'
                 ? gravityAngles.map((degrees) => (degrees * Math.PI) / 180)
                 : [0, 0, 0]) as [number, number, number],
         [mode, gravityAngles]
@@ -1095,7 +1095,10 @@ export function RotorFemPage() {
      * módulo los hacía indistinguibles.
      */
     const tangentialWeight = useMemo(
-        () => Math.round((alpha / ALPHA_REF) * 20) / 20,
+        // **Invertido** respecto de α: la carga que ve la pala es la de inercia, que
+        // va en sentido contrario a la aceleración. Acelerar (α > 0) deforma la pala
+        // hacia atrás, así que el peso del caso unitario es negativo.
+        () => Math.round((-alpha / ALPHA_REF) * 20) / 20,
         [alpha]
     );
     const [colourScale, setColourScale] = useState<number | null>(null);
@@ -2169,7 +2172,7 @@ export function RotorFemPage() {
                     </group>
 
                     <Rotor node={rotorNode} omega={omegaRef} spin={spinRef} />
-                    {mode === 'gravity' ? <GravityVector /> : null}
+                    {mode === 'gravity' || mode === 'all' ? <GravityVector /> : null}
 
                     <Grid
                         args={[6, 6]}
