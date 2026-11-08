@@ -977,7 +977,9 @@ export function RotorFemPage() {
      * nada visual y calienta la máquina para nada.
      */
     useEffect(() => {
-        if (mode !== 'tangential') {
+        // `all` también necesita el transitorio: sin él ω salta al objetivo, α se
+        // queda en 0 y la carga tangencial no aparece nunca.
+        if (mode !== 'tangential' && mode !== 'all') {
             setOmega(omegaTarget);
             return;
         }
@@ -1186,7 +1188,14 @@ export function RotorFemPage() {
     const flexDirections = useMemo(() => {
         const data = bake.data;
         if (!data) return null;
-        const casos = ['blade-x', 'blade-y', 'blade-z'];
+        // En `all` la referencia es la **tangencial**: es la única carga con sentido
+        // físico claro (acelera / frena) y la que el usuario espera ver cálida al
+        // acelerar. Con la dirección de flexión, sumar centrífuga podía invertir el
+        // signo de la proyección y "acelerar" salía azul.
+        const casos =
+            mode === 'all'
+                ? ['blade-tangential']
+                : ['blade-x', 'blade-y', 'blade-z'];
         const out: Record<string, [number, number, number]> = {};
         for (const [bladeName, blade] of Object.entries(data.blades)) {
             let mejor = '';
@@ -1215,7 +1224,7 @@ export function RotorFemPage() {
             if (norma > 0) out[bladeName] = [sx / norma, sy / norma, sz / norma];
         }
         return out;
-    }, [bake.data]);
+    }, [bake.data, mode]);
 
     /** Nombres de las palas del bake, para los textos de la interfaz. */
     const bladeNames = useMemo(() => Object.keys(bake.data?.blades ?? {}), [bake.data]);
