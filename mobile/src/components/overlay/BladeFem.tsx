@@ -20,6 +20,7 @@ import {
     clearBladeField,
     loadBladeBake,
 } from '../../lib/fem/bladeFem';
+import { bladeTrace } from '../../lib/fem/bladeTrace';
 import type { BladeBake } from '../../rotorfem/types';
 
 /** Repintado del campo: 5 Hz es de sobra para un mapa de carga. */
@@ -74,7 +75,10 @@ export function BladeFem({ root }: { root: THREE.Object3D }) {
         useAppStore.setState({ bladeFemStatus: null });
         previousAngle.current = null;
         previousTime.current = null;
+        previousOmegaTime.current = null;
         omega.current = 0;
+        alpha.current = 0;
+        bladeTrace.reset();
     }, [enabled, root]);
 
     // Opacidad del contorno: se aplica a los materiales pintados.
@@ -91,12 +95,11 @@ export function BladeFem({ root }: { root: THREE.Object3D }) {
         });
     }, [root, opacity, enabled]);
 
+    // ω y α se calculan **siempre**, aunque el mapa esté apagado: el gráfico del
+    // modal tiene que poder decir si el rotor se mueve.
     useEffect(() => {
-        if (!enabled) return;
-
         const tick = () => {
             const data = bake.current;
-            if (!data) return;
             const angle = useAppStore.getState().rotorAngleAuto;
             const now = performance.now();
             if (angle !== null) {
@@ -123,6 +126,9 @@ export function BladeFem({ root }: { root: THREE.Object3D }) {
             previousOmegaTime.current = now;
 
             const spin = (((angle ?? 0) * Math.PI) / 180) % (Math.PI * 2);
+
+            bladeTrace.push(omega.current, alpha.current);
+            if (!enabled || !data) return;
 
             const result = applyBladeField(root, data, {
                 omega: omega.current,
