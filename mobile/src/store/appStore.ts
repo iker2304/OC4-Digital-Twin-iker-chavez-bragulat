@@ -141,6 +141,24 @@ export interface AppState {
     omaBlend: Array<{ label: string; freqHz: number }> | null;
     /** Last error loading or applying the contour map. */
     omaError: string | null;
+
+    /* --- campo FEM de las palas (misma cuenta que /rotor-fem/) --- */
+    /** Pinta los cinco casos FEM sobre las mallas del gemelo. */
+    bladeFemEnabled: boolean;
+    /** Mueve los vértices con el desplazamiento, no solo cambia el color. */
+    bladeFemDeform: boolean;
+    /** El desplazamiento máximo ocupa `bladeFemGain` % de la pala. */
+    bladeFemNonDimensional: boolean;
+    /** Con signo (α, gravedad) o solo módulo. */
+    bladeFemField: 'magnitude' | 'signed';
+    /** Multiplicador en metros, o % de la pala si es no dimensional. */
+    bladeFemGain: number;
+    /** Constante de tiempo de la derivada de ω, en segundos. */
+    bladeFemInertia: number;
+    /** Opacidad del contour sobre el gemelo (0.2 = se ve la geometría debajo). */
+    bladeFemOpacity: number;
+    /** Último resultado aplicado, para enseñarlo en el modal. */
+    bladeFemStatus: { painted: number; min: number; max: number; omega: number; error: string | null } | null;
     /** Minimum keypoint confidence used for pose estimation. */
     keypointMinScore: number;
     /**
@@ -283,6 +301,14 @@ export const useAppStore = create<AppState>()((set) => ({
     omaModeMap: null,
     omaBlend: null,
     omaError: null,
+    bladeFemEnabled: false,
+    bladeFemDeform: true,
+    bladeFemNonDimensional: true,
+    bladeFemField: 'signed',
+    bladeFemGain: 5,
+    bladeFemInertia: 1,
+    bladeFemOpacity: 0.85,
+    bladeFemStatus: null,
     showReprojection: true,
     poseUpdatedAt: 0,
     poseReacquired: false,

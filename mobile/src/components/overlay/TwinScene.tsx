@@ -28,6 +28,7 @@ import { intrinsicsFromFov } from '../../lib/pose/solvePnP';
 import { shouldShowTwin } from '../../lib/pose/poseTracker';
 import { modalTracker } from '../../lib/oma/modalTracker';
 import { ModeColors } from './ModeColors';
+import { BladeFem } from './BladeFem';
 import { getGyro, getYawReference, hasGyroSignal, shortestAngle } from '../../lib/useDeviceOrientation';
 
 /** Longest edge of the normalised twin, in world units (free-look mode only). */
@@ -108,6 +109,7 @@ function LoadedModel({ url, normalize }: { url: string; normalize: boolean }) {
             <primitive object={object} />
             <RotorAzimuth root={object} />
             <ModeColors root={object} />
+            <BladeFem root={object} />
         </>
     );
 }

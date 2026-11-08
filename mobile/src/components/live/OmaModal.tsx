@@ -28,6 +28,14 @@ export function OmaModal() {
     const blend = useAppStore((state) => state.omaBlend);
     const omaError = useAppStore((state) => state.omaError);
     const [mapBusy, setMapBusy] = useState(false);
+    const bladeEnabled = useAppStore((state) => state.bladeFemEnabled);
+    const bladeDeform = useAppStore((state) => state.bladeFemDeform);
+    const bladeNonDimensional = useAppStore((state) => state.bladeFemNonDimensional);
+    const bladeField = useAppStore((state) => state.bladeFemField);
+    const bladeGain = useAppStore((state) => state.bladeFemGain);
+    const bladeInertia = useAppStore((state) => state.bladeFemInertia);
+    const bladeOpacity = useAppStore((state) => state.bladeFemOpacity);
+    const bladeStatus = useAppStore((state) => state.bladeFemStatus);
     const close = () => useAppStore.setState({ omaOpen: false });
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [snapshot, setSnapshot] = useState<OmaSnapshot | null>(null);
@@ -218,6 +226,129 @@ export function OmaModal() {
                         format={(value) => `×${value.toFixed(0)}`}
                         hint="Cuánto se exagera el residuo medido al mover el gemelo."
                     />
+                </div>
+
+                {/* Malla FEM: los cinco casos del solver sobre las palas del gemelo.
+                    La ω sale del ángulo del rotor que fija el trackeo de keypoints;
+                    aquí solo se ajusta cuánto se filtra y cómo se pinta. */}
+                <div className="mt-4 border-t border-white/10 pt-3">
+                    <label className="flex items-center justify-between gap-2 text-[11px] text-slate-300">
+                        <span className="font-semibold">Malla FEM de las palas</span>
+                        <input
+                            type="checkbox"
+                            checked={bladeEnabled}
+                            onChange={(event) =>
+                                useAppStore.setState({ bladeFemEnabled: event.target.checked })
+                            }
+                        />
+                    </label>
+                    <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+                        Centrífuga, tangencial y gravedad sumadas con los pesos que salen del ángulo
+                        del rotor. El 100 % del color es el caso unitario.
+                    </p>
+
+                    {bladeEnabled ? (
+                        <div className="mt-2 space-y-2">
+                            <div className="flex flex-wrap gap-1.5">
+                                {(
+                                    [
+                                        ['signed', 'con signo ±'],
+                                        ['magnitude', 'módulo |u|'],
+                                    ] as const
+                                ).map(([id, label]) => (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        onClick={() => useAppStore.setState({ bladeFemField: id })}
+                                        className={`rounded-full px-2 py-0.5 text-[10px] transition ${
+                                            bladeField === id
+                                                ? 'bg-sky-500/20 text-sky-300'
+                                                : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        useAppStore.setState({ bladeFemDeform: !bladeDeform })
+                                    }
+                                    className={`rounded-full px-2 py-0.5 text-[10px] transition ${
+                                        bladeDeform
+                                            ? 'bg-sky-500/20 text-sky-300'
+                                            : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                                    }`}
+                                >
+                                    deformada
+                                </button>
+                                {bladeDeform ? (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            useAppStore.setState({
+                                                bladeFemNonDimensional: !bladeNonDimensional,
+                                                bladeFemGain: !bladeNonDimensional ? 5 : 1e6,
+                                            })
+                                        }
+                                        className={`rounded-full px-2 py-0.5 text-[10px] transition ${
+                                            bladeNonDimensional
+                                                ? 'bg-sky-500/20 text-sky-300'
+                                                : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        no dimensional
+                                    </button>
+                                ) : null}
+                            </div>
+
+                            <SliderRow
+                                label="Inercia del filtro de ω"
+                                value={bladeInertia}
+                                min={0.1}
+                                max={4}
+                                step={0.1}
+                                onChange={(value) => useAppStore.setState({ bladeFemInertia: value })}
+                                format={(value) => `${value.toFixed(1)} s`}
+                                hint="Cuánto se suaviza la ω que sale del trackeo de keypoints."
+                            />
+                            {bladeDeform ? (
+                                <SliderRow
+                                    label={bladeNonDimensional ? 'Deformación (% de la pala)' : 'Escala de la deformación'}
+                                    value={bladeGain}
+                                    min={bladeNonDimensional ? 0.5 : 10000}
+                                    max={bladeNonDimensional ? 20 : 5000000}
+                                    step={bladeNonDimensional ? 0.5 : 10000}
+                                    onChange={(value) => useAppStore.setState({ bladeFemGain: value })}
+                                    format={(value) =>
+                                        bladeNonDimensional
+                                            ? `${value.toFixed(1)} %`
+                                            : `×${value.toExponential(1)}`
+                                    }
+                                />
+                            ) : null}
+                            <SliderRow
+                                label="Opacidad del contorno"
+                                value={bladeOpacity}
+                                min={0.2}
+                                max={1}
+                                step={0.05}
+                                onChange={(value) => useAppStore.setState({ bladeFemOpacity: value })}
+                                format={(value) => `${Math.round(value * 100)} %`}
+                                hint="Con menos opacidad se ve la geometría del gemelo debajo del mapa."
+                            />
+
+                            {bladeStatus ? (
+                                <p className="text-[10px] text-slate-500">
+                                    {bladeStatus.error
+                                        ? `error: ${bladeStatus.error}`
+                                        : `${bladeStatus.painted} primitivas · ω ${bladeStatus.omega.toFixed(2)} rad/s · campo ${(bladeStatus.min * 1e6).toFixed(1)} … ${(bladeStatus.max * 1e6).toFixed(1)} µm`}
+                                </p>
+                            ) : (
+                                <p className="text-[10px] text-slate-500">cargando el horneado…</p>
+                            )}
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="mt-2 flex gap-2">
