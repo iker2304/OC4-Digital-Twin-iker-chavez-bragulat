@@ -1188,13 +1188,22 @@ export function RotorFemPage() {
     const flexDirections = useMemo(() => {
         const data = bake.data;
         if (!data) return null;
-        // En `all` la referencia es la **tangencial**: es la única carga con sentido
-        // físico claro (acelera / frena) y la que el usuario espera ver cálida al
-        // acelerar. Con la dirección de flexión, sumar centrífuga podía invertir el
-        // signo de la proyección y "acelerar" salía azul.
+        // Qué dirección se usa para el signo. En `all` hay cargas que deforman en
+        // direcciones distintas, así que se elige la de la **carga dominante**:
+        // - si manda la tangencial (acelerando/frenando), su dirección, que es la
+        //   única con sentido físico claro (positivo al acelerar);
+        // - si manda la gravedad, la de flexión, la misma que en el modo `gravedad`,
+        //   para que las contribuciones x/y/z no salgan con el signo cambiado.
+        const picoDe = (name: string) => {
+            const entry = data.cases[name];
+            return entry ? Math.max(0, ...Object.values(entry.peaks)) : 0;
+        };
+        const mandaTangencial =
+            Math.abs(tangentialWeight) * picoDe('blade-tangential') >=
+            Math.max(picoDe('blade-x'), picoDe('blade-y'), picoDe('blade-z'));
         const casos =
             mode === 'all'
-                ? ['blade-tangential']
+                ? [mandaTangencial ? 'blade-tangential' : 'blade-x']
                 : ['blade-x', 'blade-y', 'blade-z'];
         const out: Record<string, [number, number, number]> = {};
         for (const [bladeName, blade] of Object.entries(data.blades)) {
@@ -1224,7 +1233,7 @@ export function RotorFemPage() {
             if (norma > 0) out[bladeName] = [sx / norma, sy / norma, sz / norma];
         }
         return out;
-    }, [bake.data, mode]);
+    }, [bake.data, mode, tangentialWeight]);
 
     /** Nombres de las palas del bake, para los textos de la interfaz. */
     const bladeNames = useMemo(() => Object.keys(bake.data?.blades ?? {}), [bake.data]);
