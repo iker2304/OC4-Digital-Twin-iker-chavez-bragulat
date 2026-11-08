@@ -320,11 +320,15 @@ function prepareBladeMesh(mesh: THREE.Mesh): void {
 /**
  * Pinta el campo FEM **sobre las mallas de pala del propio `.glb`**.
  *
- * La superposición de cargas se hace bien: los casos de gravedad (`blade-x/y/z`)
- * se combinan **como vectores**, con sus cosenos directores y con su signo. Sumar
- * módulos, que es lo que se hacía antes, no es lo mismo (sobreestima, y con un
- * peso negativo ni siquiera está definido). Centrífuga y tangencial son casos
- * positivos y simétricos, así que ahí basta el módulo.
+ * Hay dos formas de mirar el mismo campo:
+ *
+ * - **módulo**: |Σ w_c·u_c|, la superposición vectorial de los cinco casos. Es la
+ *   magnitud del desplazamiento resultante.
+ * - **con signo**: Σ w_c·|u_c|, la misma suma pero usando el módulo de cada caso y
+ *   **el signo de su peso**. El signo no se inventa con ninguna proyección: sale
+ *   del peso, que es lo que tiene sentido físico (α > 0 acelera y α < 0 frena; el
+ *   coseno de la gravedad es positivo si la pala está alineada con ese eje y
+ *   negativo si va al revés).
  *
  * `field` decide qué se pinta (el 100 % es **siempre el caso de referencia**, no el
  * máximo del modo: centrífuga a 5× pasa del 100 %, y tangencial se sale por abajo):
@@ -339,8 +343,7 @@ function paintBlades(
     weightFor: (bladeName: string) => Weights,
     range: { min: number; max: number } | null,
     field: 'magnitude' | 'signed',
-    smooth: boolean,
-    directions: Record<string, [number, number, number]> | null
+    smooth: boolean
 ): {
     painted: number;
     reason: string | null;
@@ -370,19 +373,19 @@ function paintBlades(
 
     for (const [bladeName, blade] of Object.entries(bake.blades)) {
         const total = blade.vertexCount;
-        // Dirección sobre la que se proyecta el campo con signo: la de la flexión
-        // dominante, no el eje de la pala. Proyectar sobre el eje mide compresión
-        // axial (nanómetros) y dejaba el mapa casi plano; la flexión es la que se
-        // lleva los 450 nm y la que interesa ver con signo.
-        const eje = directions?.[bladeName] ?? blade.axis ?? [1, 0, 0];
         const salida = new Float32Array(total);
-        const escalar = new Float32Array(total);
+        // Dos acumuladores, uno por cada forma de mirar el campo:
+        // - `vector`: Σ w·u_c, la superposición de verdad (magnitud al final).
+        // - `firmado`: Σ w·|u_c|, la misma suma pero con el **signo del peso** de
+        //   cada caso. Es lo que se pinta cuando se pide signo: si α > 0 el término
+        //   tangencial entra positivo y si α < 0 negativo; si la gravedad del caso
+        //   va al revés de su eje, su coseno entra negativo. Sin direcciones de
+        //   proyección inventadas.
         const vx = new Float32Array(total);
         const vy = new Float32Array(total);
         const vz = new Float32Array(total);
-        let hayVector = false;
-        /** Pesos efectivamente aplicados, para saber si el signo es único. */
-        const aplicados: number[] = [];
+        const firmado = new Float32Array(total);
+        const sueltos = new Float32Array(total);
 
         const pesos = weightFor(bladeName);
         // Un caso conocido con peso 0 (α = 0, por ejemplo) sigue siendo un campo:
@@ -393,9 +396,16 @@ function paintBlades(
             if (!weight) continue;
             const entry = bake.cases[caseName];
             if (!entry) continue;
+
+            // Magnitud del caso unitario: sirve para el campo con signo.
+            const encoded = entry.values[bladeName];
+            const magnitud = encoded
+                ? (cachedBytes(`${caseName}|${bladeName}|m`, () => base64ToBytes(encoded)) as Uint8Array)
+                : null;
+            const escalaCaso = (entry.peaks[bladeName] ?? 0) / 255;
+
             const comps = entry.vectors?.[bladeName];
             if (comps) {
-                // --- caso vectorial (gravedad): se suma con su signo
                 const peakComponente = entry.vectorPeaks?.[bladeName] ?? 0;
                 if (!(peakComponente > 0)) continue;
                 const factor = (weight * peakComponente) / 127;
@@ -413,41 +423,30 @@ function paintBlades(
                     vx[index] += cx[index] * factor;
                     vy[index] += cy[index] * factor;
                     vz[index] += cz[index] * factor;
+                    if (magnitud && index < magnitud.length) {
+                        firmado[index] += weight * magnitud[index] * escalaCaso;
+                    }
                 }
-                hayVector = true;
                 algunActivo = true;
-                aplicados.push(weight);
                 continue;
             }
-            // --- caso escalar (centrífuga, tangencial): el módulo basta
-            if (!(weight > 0)) continue;
-            const encoded = entry.values[bladeName];
-            if (!encoded) continue;
-            const bytes = cachedBytes(`${caseName}|${bladeName}|m`, () =>
-                base64ToBytes(encoded)
-            ) as Uint8Array;
-            const factor = (weight * (entry.peaks[bladeName] ?? 0)) / 255;
-            const limite = Math.min(total, bytes.length);
-            for (let index = 0; index < limite; index += 1) escalar[index] += bytes[index] * factor;
-            aplicados.push(weight);
+
+            // Caso sin componentes (no debería quedar ninguno): solo módulo.
+            if (!magnitud) continue;
+            const factor = weight * escalaCaso;
+            const limite = Math.min(total, magnitud.length);
+            for (let index = 0; index < limite; index += 1) {
+                firmado[index] += magnitud[index] * factor;
+                sueltos[index] += Math.abs(magnitud[index] * factor);
+            }
             algunActivo = true;
         }
 
-        // Con **un solo caso** activo el campo entero va en una dirección: el signo
-        // lo pone el peso (α > 0 acelera, α < 0 frena), así que el valor firmado es
-        // el módulo con ese signo. Con varios (gravedad) el signo cambia de una zona
-        // a otra, y lo que tiene sentido es proyectar sobre el eje de la pala.
-        const signoUnico = aplicados.length === 1 ? Math.sign(aplicados[0]) : 0;
-
         for (let index = 0; index < total; index += 1) {
-            const modulo = hayVector ? Math.hypot(vx[index], vy[index], vz[index]) : 0;
-            const axial = vx[index] * eje[0] + vy[index] * eje[1] + vz[index] * eje[2];
             salida[index] =
                 field === 'signed'
-                    ? signoUnico
-                        ? signoUnico * (modulo + escalar[index])
-                        : axial + escalar[index]
-                    : modulo + escalar[index];
+                    ? firmado[index]
+                    : Math.hypot(vx[index], vy[index], vz[index]) + sueltos[index];
             const absoluto = Math.abs(salida[index]);
             if (absoluto > peak) peak = absoluto;
             if (salida[index] < min) min = salida[index];
@@ -1178,63 +1177,6 @@ export function RotorFemPage() {
         ]
     );
 
-    /**
-     * Dirección de flexión dominante de cada pala, para el campo con signo.
-     *
-     * Se saca del caso de mayor pico (`blade-x`: 452 nm, flexión en el plano) como
-     * la media de todos sus vectores, normalizada. Es un dato del análisis, no
-     * depende del ángulo, así que el signo es estable mientras el rotor gira.
-     */
-    const flexDirections = useMemo(() => {
-        const data = bake.data;
-        if (!data) return null;
-        // Qué dirección se usa para el signo. En `all` hay cargas que deforman en
-        // direcciones distintas, así que se elige la de la **carga dominante**:
-        // - si manda la tangencial (acelerando/frenando), su dirección, que es la
-        //   única con sentido físico claro (positivo al acelerar);
-        // - si manda la gravedad, la de flexión, la misma que en el modo `gravedad`,
-        //   para que las contribuciones x/y/z no salgan con el signo cambiado.
-        const picoDe = (name: string) => {
-            const entry = data.cases[name];
-            return entry ? Math.max(0, ...Object.values(entry.peaks)) : 0;
-        };
-        const mandaTangencial =
-            Math.abs(tangentialWeight) * picoDe('blade-tangential') >=
-            Math.max(picoDe('blade-x'), picoDe('blade-y'), picoDe('blade-z'));
-        const casos =
-            mode === 'all'
-                ? [mandaTangencial ? 'blade-tangential' : 'blade-x']
-                : ['blade-x', 'blade-y', 'blade-z'];
-        const out: Record<string, [number, number, number]> = {};
-        for (const [bladeName, blade] of Object.entries(data.blades)) {
-            let mejor = '';
-            let mejorPico = 0;
-            for (const caso of casos) {
-                const pico = data.cases[caso]?.vectorPeaks?.[bladeName] ?? 0;
-                if (pico > mejorPico) {
-                    mejorPico = pico;
-                    mejor = caso;
-                }
-            }
-            const comps = mejor ? data.cases[mejor]?.vectors?.[bladeName] : undefined;
-            if (!comps) continue;
-            const cx = cachedBytes(`${mejor}|${bladeName}|x`, () => base64ToInt8(comps.x)) as Int8Array;
-            const cy = cachedBytes(`${mejor}|${bladeName}|y`, () => base64ToInt8(comps.y)) as Int8Array;
-            const cz = cachedBytes(`${mejor}|${bladeName}|z`, () => base64ToInt8(comps.z)) as Int8Array;
-            let sx = 0;
-            let sy = 0;
-            let sz = 0;
-            for (let index = 0; index < Math.min(blade.vertexCount, cx.length); index += 1) {
-                sx += cx[index];
-                sy += cy[index];
-                sz += cz[index];
-            }
-            const norma = Math.hypot(sx, sy, sz);
-            if (norma > 0) out[bladeName] = [sx / norma, sy / norma, sz / norma];
-        }
-        return out;
-    }, [bake.data, mode, tangentialWeight]);
-
     /** Nombres de las palas del bake, para los textos de la interfaz. */
     const bladeNames = useMemo(() => Object.keys(bake.data?.blades ?? {}), [bake.data]);
 
@@ -1418,8 +1360,7 @@ export function RotorFemPage() {
             weightFor,
             scaleRange ?? (staticRange.max > 0 ? staticRange : null),
             field,
-            smooth,
-            flexDirections
+            smooth
         );
         setPaintMs(performance.now() - started);
         setPainted({ painted: result.painted, reason: result.reason });
@@ -1430,7 +1371,7 @@ export function RotorFemPage() {
                 ? [result.min, result.max]
                 : previous
         );
-    }, [gltf, paint, bake.data, weightFor, scaleRange, staticRange, field, smooth, flexDirections]);
+    }, [gltf, paint, bake.data, weightFor, scaleRange, staticRange, field, smooth]);
 
     // Al cambiar de gemelo (o desmontar) hay que devolver los materiales del anterior.
     useEffect(() => {
@@ -1442,7 +1383,7 @@ export function RotorFemPage() {
     useEffect(() => {
         if (!gltf) return;
         applyTwinOpacity(gltf, twinOpacity);
-    }, [gltf, twinOpacity, paint, bake.data, weightFor, scaleRange, field, flexDirections]);
+    }, [gltf, twinOpacity, paint, bake.data, weightFor, scaleRange, field]);
 
     const residual = bake.data?.blades.base?.icp;
 
