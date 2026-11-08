@@ -5,6 +5,7 @@ import { BenchPage } from './bench/BenchPage';
 import { PublicBenchPage } from './bench/PublicBenchPage';
 import { ModelInfoPage } from './modelinfo/ModelInfoPage';
 import { RotorFemPage } from './rotorfem/RotorFemPage';
+import { LandingsPage } from './landings/LandingsPage';
 import { useAppStore } from './store/appStore';
 import './index.css';
 
@@ -65,12 +66,26 @@ const rotorFem =
 
 if (rotorFem) document.documentElement.classList.add('oc4-scroll');
 
+/**
+ * Índice de pantallas, en `/landings/` (y `?landings=1`).
+ *
+ * La app ya tiene cinco caras (captura, dos benchmarks, modelos y calibración
+ * FEM) y solo se llegaba a ellas escribiendo la ruta a mano.
+ */
+const landings =
+    new URLSearchParams(window.location.search).has('landings') ||
+    /\/landings\/?$/.test(window.location.pathname);
+
+if (landings) document.documentElement.classList.add('oc4-scroll');
+
 const container = document.getElementById('root');
 if (!container) throw new Error('Falta el elemento #root en index.html');
 
 createRoot(container).render(
     <StrictMode>
-        {modelInfo ? (
+        {landings ? (
+            <LandingsPage />
+        ) : modelInfo ? (
             <ModelInfoPage />
         ) : rotorFem ? (
             <RotorFemPage />

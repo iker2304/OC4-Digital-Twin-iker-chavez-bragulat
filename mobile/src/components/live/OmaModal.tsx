@@ -169,11 +169,10 @@ export function OmaModal() {
                                     key={id}
                                     type="button"
                                     onClick={() => useAppStore.setState({ bladeFemField: id })}
-                                    className={`rounded-full px-2 py-0.5 text-[10px] transition ${
-                                        bladeField === id
+                                    className={`rounded-full px-2 py-0.5 text-[10px] transition ${bladeField === id
                                             ? 'bg-sky-500/20 text-sky-300'
                                             : 'bg-white/5 text-slate-400 hover:bg-white/10'
-                                    }`}
+                                        }`}
                                 >
                                     {label}
                                 </button>
@@ -181,11 +180,10 @@ export function OmaModal() {
                             <button
                                 type="button"
                                 onClick={() => useAppStore.setState({ bladeFemDeform: !bladeDeform })}
-                                className={`rounded-full px-2 py-0.5 text-[10px] transition ${
-                                    bladeDeform
+                                className={`rounded-full px-2 py-0.5 text-[10px] transition ${bladeDeform
                                         ? 'bg-sky-500/20 text-sky-300'
                                         : 'bg-white/5 text-slate-400 hover:bg-white/10'
-                                }`}
+                                    }`}
                             >
                                 deformada
                             </button>
@@ -198,11 +196,10 @@ export function OmaModal() {
                                             bladeFemGain: !bladeNonDimensional ? 5 : 1e6,
                                         })
                                     }
-                                    className={`rounded-full px-2 py-0.5 text-[10px] transition ${
-                                        bladeNonDimensional
+                                    className={`rounded-full px-2 py-0.5 text-[10px] transition ${bladeNonDimensional
                                             ? 'bg-sky-500/20 text-sky-300'
                                             : 'bg-white/5 text-slate-400 hover:bg-white/10'
-                                    }`}
+                                        }`}
                                 >
                                     no dimensional
                                 </button>
