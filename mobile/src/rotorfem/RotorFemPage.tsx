@@ -1629,15 +1629,15 @@ export function RotorFemPage() {
                                     <span className="w-20 shrink-0">giro visual</span>
                                     <input
                                         type="range"
-                                        min={1}
+                                        min={0.1}
                                         max={8}
-                                        step={1}
+                                        step={0.1}
                                         value={spinGain}
                                         onChange={(event) => setSpinGain(Number(event.target.value))}
                                         className="flex-1"
                                     />
                                     <span className="w-12 text-right font-mono text-slate-300">
-                                        {spinGain}×
+                                        {Number(spinGain.toFixed(1))}×
                                     </span>
                                     <button
                                         type="button"
