@@ -314,6 +314,10 @@ function prepareBladeMesh(mesh: THREE.Mesh): void {
     }
 
     mesh.userData.__femGroups = [...porPosicion.values()].filter((grupo) => grupo.length > 1);
+    // Posición de reposo, para poder deformar y deshacerlo sin acumular.
+    mesh.userData.__femOriginal = new Float32Array(
+        (geometry.attributes.position as THREE.BufferAttribute).array as Float32Array
+    );
     mesh.userData.__femPrepared = true;
 }
 
@@ -343,7 +347,8 @@ function paintBlades(
     weightFor: (bladeName: string) => Weights,
     range: { min: number; max: number } | null,
     field: 'magnitude' | 'signed',
-    smooth: boolean
+    smooth: boolean,
+    deform: { gain: number; nonDimensional: boolean } | null
 ): {
     painted: number;
     reason: string | null;
@@ -366,6 +371,8 @@ function paintBlades(
     });
 
     const valores = new Map<string, Float32Array>();
+    /** Desplazamiento vectorial por pala, para poder deformar la geometría. */
+    const vectores = new Map<string, { x: Float32Array; y: Float32Array; z: Float32Array }>();
     let peak = 0;
     let min = Infinity;
     let max = -Infinity;
@@ -453,6 +460,7 @@ function paintBlades(
             if (salida[index] > max) max = salida[index];
         }
         valores.set(bladeName, salida);
+        vectores.set(bladeName, { x: vx, y: vy, z: vz });
     }
 
     if (!algunActivo) {
@@ -494,6 +502,10 @@ function paintBlades(
     for (const [bladeName, blade] of Object.entries(bake.blades)) {
         const total = valores.get(bladeName);
         if (!total) continue;
+        const vector = vectores.get(bladeName);
+        const vx = vector?.x ?? new Float32Array(blade.vertexCount);
+        const vy = vector?.y ?? new Float32Array(blade.vertexCount);
+        const vz = vector?.z ?? new Float32Array(blade.vertexCount);
         let offset = 0;
 
         for (const primitive of blade.primitives) {
@@ -587,6 +599,38 @@ function paintBlades(
                 array[index * 3 + 2] = colour.b;
             }
             colours.needsUpdate = true;
+
+            // --- geometría deformada
+            // El desplazamiento es el vector de la superposición, así que la pala se
+            // dobla de verdad y no solo cambia de color. Se escribe sobre la posición
+            // de reposo guardada, no sobre la actual: si no, cada repintado acumularía
+            // la deformación anterior.
+            const position = mesh.geometry.attributes.position as THREE.BufferAttribute;
+            const original = mesh.userData.__femOriginal as Float32Array | undefined;
+            if (original && original.length === position.array.length) {
+                const escala = deform
+                    ? deform.nonDimensional
+                        ? // no dimensional: el máximo del campo ocupa `gain` % de la pala
+                          ((deform.gain / 100) * BLADE_TIP_M) / (peak > 0 ? peak : 1)
+                        : deform.gain
+                    : 0;
+                if (escala > 0) {
+                    const inicio = offset - primitive.count;
+                    for (let index = 0; index < primitive.count; index += 1) {
+                        position.array[index * 3] = original[index * 3] + vx[inicio + index] * escala;
+                        position.array[index * 3 + 1] =
+                            original[index * 3 + 1] + vy[inicio + index] * escala;
+                        position.array[index * 3 + 2] =
+                            original[index * 3 + 2] + vz[inicio + index] * escala;
+                    }
+                    position.needsUpdate = true;
+                    mesh.userData.__femDeformed = true;
+                } else if (mesh.userData.__femDeformed) {
+                    (position.array as Float32Array).set(original);
+                    position.needsUpdate = true;
+                    mesh.userData.__femDeformed = false;
+                }
+            }
 
             if (!mesh.userData.__femMaterial) {
                 const previous = mesh.material as THREE.Material;
@@ -942,6 +986,15 @@ export function RotorFemPage() {
     const [scaleRange, setScaleRange] = useState<{ min: number; max: number } | null>(null);
     /** Promediar el color entre vértices que comparten posición (quita facetas). */
     const [smooth, setSmooth] = useState(true);
+    /** Deformar la geometría con el desplazamiento calculado, no solo pintarla. */
+    const [deform, setDeform] = useState(false);
+    /** Escala de la deformada: multiplicador libre, o % de la pala si es adimensional. */
+    const [deformGain, setDeformGain] = useState(5);
+    /**
+     * Deformación **no dimensional**: el máximo del campo se lleva a `deformGain`
+     * por ciento de la longitud de la pala, así se ve igual con cualquier carga.
+     */
+    const [nonDimensional, setNonDimensional] = useState(true);
     /** Duración del último repintado, en ms. Con el rotor girando se ve el coste. */
     const [paintMs, setPaintMs] = useState(0);
     const [anchor, setAnchor] = useState<Anchor>(DEFAULT_ANCHOR);
@@ -1360,7 +1413,8 @@ export function RotorFemPage() {
             weightFor,
             scaleRange ?? (staticRange.max > 0 ? staticRange : null),
             field,
-            smooth
+            smooth,
+            deform ? { gain: deformGain, nonDimensional } : null
         );
         setPaintMs(performance.now() - started);
         setPainted({ painted: result.painted, reason: result.reason });
@@ -1371,7 +1425,19 @@ export function RotorFemPage() {
                 ? [result.min, result.max]
                 : previous
         );
-    }, [gltf, paint, bake.data, weightFor, scaleRange, staticRange, field, smooth]);
+    }, [
+        gltf,
+        paint,
+        bake.data,
+        weightFor,
+        scaleRange,
+        staticRange,
+        field,
+        smooth,
+        deform,
+        deformGain,
+        nonDimensional,
+    ]);
 
     // Al cambiar de gemelo (o desmontar) hay que devolver los materiales del anterior.
     useEffect(() => {
@@ -1383,7 +1449,18 @@ export function RotorFemPage() {
     useEffect(() => {
         if (!gltf) return;
         applyTwinOpacity(gltf, twinOpacity);
-    }, [gltf, twinOpacity, paint, bake.data, weightFor, scaleRange, field]);
+    }, [
+        gltf,
+        twinOpacity,
+        paint,
+        bake.data,
+        weightFor,
+        scaleRange,
+        field,
+        deform,
+        deformGain,
+        nonDimensional,
+    ]);
 
     const residual = bake.data?.blades.base?.icp;
 
@@ -1923,6 +2000,51 @@ export function RotorFemPage() {
                             />
                             alambre
                         </label>
+                        <label className="flex items-center gap-2">
+                            <input
+                                type="checkbox"
+                                checked={deform}
+                                onChange={(event) => setDeform(event.target.checked)}
+                            />
+                            deformada
+                        </label>
+                        {deform ? (
+                            <div className="space-y-1 pl-5">
+                                <label className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={nonDimensional}
+                                        onChange={(event) => {
+                                            setNonDimensional(event.target.checked);
+                                            // El campo cambia de significado: % de la pala
+                                            // frente a multiplicador de metros.
+                                            setDeformGain(event.target.checked ? 5 : 1e6);
+                                        }}
+                                    />
+                                    no dimensional
+                                </label>
+                                <label className="flex items-center gap-2">
+                                    <span className="w-14 text-slate-500">
+                                        {nonDimensional ? '% pala' : 'escala ×'}
+                                    </span>
+                                    <input
+                                        type="number"
+                                        value={deformGain}
+                                        step={nonDimensional ? 0.5 : 10000}
+                                        min={nonDimensional ? 0.1 : 1}
+                                        onChange={(event) =>
+                                            setDeformGain(Number(event.target.value) || 0)
+                                        }
+                                        className="w-full rounded border border-white/10 bg-white/[0.03] px-2 py-1 text-right font-mono text-[11px] text-slate-200 outline-none focus:border-sky-400/60"
+                                    />
+                                </label>
+                                <p className="text-[10px] leading-relaxed text-slate-600">
+                                    {nonDimensional
+                                        ? `el desplazamiento máximo ocupa el ${Number(deformGain.toFixed(2))} % de la pala`
+                                        : `los metros se multiplican por ${deformGain.toExponential(1)}`}
+                                </p>
+                            </div>
+                        ) : null}
                         <label className="flex items-center gap-2">
                             <span className="w-14">opacidad</span>
                             <input
