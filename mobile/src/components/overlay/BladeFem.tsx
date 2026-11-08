@@ -38,6 +38,10 @@ export function BladeFem({ root }: { root: THREE.Object3D }) {
     const omega = useRef(0);
     const previousAngle = useRef<number | null>(null);
     const previousTime = useRef<number | null>(null);
+    /** α filtrada, derivada de la ω que sale del trackeo. */
+    const alpha = useRef(0);
+    const previousOmega = useRef(0);
+    const previousOmegaTime = useRef<number | null>(null);
 
     // Carga del horneado que corresponde al modelo servido.
     useEffect(() => {
@@ -108,16 +112,21 @@ export function BladeFem({ root }: { root: THREE.Object3D }) {
                 previousTime.current = now;
             }
 
+            // α = dω/dt, también filtrada con la misma constante de tiempo. El campo
+            // tangencial ya invierte el signo por su cuenta.
+            if (previousOmegaTime.current !== null) {
+                const dt = Math.max(1e-3, (now - previousOmegaTime.current) / 1000);
+                const raw = (omega.current - previousOmega.current) / dt;
+                alpha.current += (raw - alpha.current) * Math.min(1, dt / Math.max(0.05, inertia));
+            }
+            previousOmega.current = omega.current;
+            previousOmegaTime.current = now;
+
             const spin = (((angle ?? 0) * Math.PI) / 180) % (Math.PI * 2);
-            // α: derivada de la ω filtrada. El propio campo tangencial ya invierte
-            // el signo, así que aquí se pasa tal cual.
-            const alpha = previousTime.current
-                ? (omega.current / Math.max(0.05, inertia)) * 0.15
-                : 0;
 
             const result = applyBladeField(root, data, {
                 omega: omega.current,
-                alpha,
+                alpha: alpha.current,
                 spin,
                 field,
                 deform,
