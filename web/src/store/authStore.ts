@@ -46,6 +46,52 @@ interface AuthStore {
 }
 
 const SESSION_KEY = 'oc4_dt_token';
+const LOCAL_USER_KEY = 'oc4_dt_local_user';
+const LOCAL_USERS_DB_KEY = 'oc4_dt_local_users';
+
+interface LocalUserRecord {
+    user: User;
+    password: string;
+}
+
+function getLocalUsers(): LocalUserRecord[] {
+    try {
+        const raw = localStorage.getItem(LOCAL_USERS_DB_KEY);
+        return raw ? (JSON.parse(raw) as LocalUserRecord[]) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveLocalUsers(users: LocalUserRecord[]) {
+    localStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(users));
+}
+
+function createLocalUser(username: string, email: string, fullName?: string): User {
+    const now = new Date().toISOString();
+    const id = `local-${Date.now()}`;
+    return {
+        id,
+        username,
+        email: email || `${username}@dupliot.com`,
+        full_name: fullName || username,
+        phone: '',
+        is_active: true,
+        is_verified: true,
+        twin_profile: {
+            twin_id: `twin-${id}`,
+            name: `${username} Digital Twin`,
+            description: 'Standalone Cloud Workspace',
+            configuration: {},
+            preferences: {},
+            created_at: now,
+            updated_at: now,
+        },
+        created_at: now,
+        updated_at: now,
+        last_login: now,
+    };
+}
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
     currentUser: null,
@@ -84,8 +130,30 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             });
             return true;
         } catch {
-            set({ error: 'Unable to connect to server' });
-            return false;
+            // Standalone / offline cloud fallback when no backend server is connected
+            const users = getLocalUsers();
+            const exists = users.find(
+                (u) =>
+                    u.user.username.toLowerCase() === username.toLowerCase() ||
+                    (email && u.user.email.toLowerCase() === email.toLowerCase())
+            );
+            if (exists) {
+                set({ error: 'El usuario o correo ya existe en este navegador' });
+                return false;
+            }
+            const user = createLocalUser(username, email, fullName);
+            const token = `local_${user.id}`;
+            users.push({ user, password });
+            saveLocalUsers(users);
+            localStorage.setItem(SESSION_KEY, token);
+            localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
+            set({
+                currentUser: user,
+                isAuthenticated: true,
+                token,
+                error: null,
+            });
+            return true;
         }
     },
 
@@ -121,13 +189,49 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             });
             return true;
         } catch {
-            set({ error: 'Unable to connect to server' });
-            return false;
+            // Standalone / offline cloud fallback when no backend server is connected
+            const users = getLocalUsers();
+            const found = users.find(
+                (u) =>
+                    u.user.username.toLowerCase() === username.toLowerCase() ||
+                    u.user.email.toLowerCase() === username.toLowerCase()
+            );
+            if (found) {
+                if (found.password !== password) {
+                    set({ error: 'Contraseña incorrecta' });
+                    return false;
+                }
+                const token = `local_${found.user.id}`;
+                localStorage.setItem(SESSION_KEY, token);
+                localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(found.user));
+                set({
+                    currentUser: found.user,
+                    isAuthenticated: true,
+                    token,
+                    error: null,
+                });
+                return true;
+            }
+            // If no local account exists yet for this username, create a local session seamlessly
+            const user = createLocalUser(username, username.includes('@') ? username : `${username}@dupliot.com`);
+            const token = `local_${user.id}`;
+            users.push({ user, password });
+            saveLocalUsers(users);
+            localStorage.setItem(SESSION_KEY, token);
+            localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
+            set({
+                currentUser: user,
+                isAuthenticated: true,
+                token,
+                error: null,
+            });
+            return true;
         }
     },
 
     logout: () => {
         localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(LOCAL_USER_KEY);
         set({ currentUser: null, isAuthenticated: false, token: null, error: null });
     },
 
@@ -137,6 +241,22 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         set({ isInitializing: true });
         const token = localStorage.getItem(SESSION_KEY);
         if (token) {
+            if (token.startsWith('local_')) {
+                try {
+                    const rawUser = localStorage.getItem(LOCAL_USER_KEY);
+                    if (rawUser) {
+                        set({
+                            currentUser: JSON.parse(rawUser) as User,
+                            isAuthenticated: true,
+                            token,
+                            isInitializing: false,
+                        });
+                        return;
+                    }
+                } catch {
+                    // ignore and clear below
+                }
+            }
             try {
                 const res = await fetch(`${API_BASE}/auth/profile`, {
                     headers: { Authorization: `Bearer ${token}` },
@@ -155,6 +275,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                 // Silently fail and fallback to clearing session
             }
             localStorage.removeItem(SESSION_KEY);
+            localStorage.removeItem(LOCAL_USER_KEY);
         }
         set({ isInitializing: false, token: null });
     },
