@@ -126,7 +126,7 @@ export const TWIN_TEMPLATES: TwinTemplate[] = [
     id: 'tpl_oc4_offshore',
     name: 'OC4 DeepCwind Floating Turbine',
     assetType: 'offshore_wind',
-    icon: '🌊',
+    icon: 'waves',
     color: '#3b82f6',
     description: 'Turbina eólica flotante semi-sumergible NREL 5MW (escala 1:100) con seguimiento óptico de 11 keypoints y análisis hidrodinámico/estructural.',
     config: { ...DEFAULT_CONFIG },
@@ -135,7 +135,7 @@ export const TWIN_TEMPLATES: TwinTemplate[] = [
     id: 'tpl_onshore_wind',
     name: 'Aerogenerador Terrestre 3.5MW',
     assetType: 'onshore_wind',
-    icon: '🌬️',
+    icon: 'wind',
     color: '#10b981',
     description: 'Turbina eólica terrestre de cimentación fija con monitorización modal de torre tubular y análisis de fatiga por cargas de viento.',
     config: {
@@ -172,7 +172,7 @@ export const TWIN_TEMPLATES: TwinTemplate[] = [
     id: 'tpl_civil_bridge',
     name: 'Viaducto / Puente Colgante SHM',
     assetType: 'civil_structure',
-    icon: '🏗️',
+    icon: 'building',
     color: '#f59e0b',
     description: 'Infraestructura civil monitorizada mediante visión artificial y sensores vibracionales para detección de daño estructural (OMA) y tensión en tirantes.',
     config: {
@@ -215,7 +215,7 @@ export const TWIN_TEMPLATES: TwinTemplate[] = [
     id: 'tpl_robotics_arm',
     name: 'Brazo Robótico Industrial 6-DOF',
     assetType: 'robotics',
-    icon: '🤖',
+    icon: 'bot',
     color: '#8b5cf6',
     description: 'Manipulador robótico articulado con estimación de pose 6-DOF por cámara, control de par en articulaciones y predicción de vida útil (RUL) de reductores.',
     config: {
@@ -258,7 +258,7 @@ export const TWIN_TEMPLATES: TwinTemplate[] = [
     id: 'tpl_aerospace_uav',
     name: 'UAV / Dron de Inspección Naval',
     assetType: 'aerospace_uav',
-    icon: '🛸',
+    icon: 'drone',
     color: '#06b6d4',
     description: 'Plataforma aérea no tripulada con seguimiento óptico de actitud (Roll/Pitch/Yaw), telemetría inercial y análisis de vibraciones en chasis.',
     config: {
@@ -328,7 +328,7 @@ const PROFILE_COLORS = [
   '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316'
 ];
 
-const PROFILE_ICONS = ['🌊', '⚡', '🔧', '🏗️', '📡', '🌬️', '🔬', '⚙️', '🤖', '🛸'];
+const PROFILE_ICONS = ['waves', 'zap', 'wrench', 'building', 'radio', 'wind', 'microscope', 'settings', 'bot', 'drone'];
 
 function normalizeProfile(p: any): TwinProfile {
   const cfg = p.config || {};
@@ -432,7 +432,7 @@ export const useProfileStore = create<ProfileStore>((set, get) => ({
         name: 'OC4 DeepCwind Floating Turbine',
         description: 'Plataforma eólica flotante semi-sumergible NREL 5MW (escala 1:100) con seguimiento óptico YOLO Pose y análisis estructural.',
         assetType: 'offshore_wind',
-        icon: '🌊',
+        icon: 'waves',
         color: '#3b82f6',
         createdAt: Date.now() - 86400000,
         updatedAt: Date.now(),
@@ -445,7 +445,7 @@ export const useProfileStore = create<ProfileStore>((set, get) => ({
         name: 'Viaducto Colgante SHM-02',
         description: 'Gemelo digital de puente atirantado para monitorización modal (OMA), control de tensión en tirantes y fatiga estructural.',
         assetType: 'civil_structure',
-        icon: '🏗️',
+        icon: 'building',
         color: '#f59e0b',
         createdAt: Date.now() - 43200000,
         updatedAt: Date.now(),
@@ -458,7 +458,7 @@ export const useProfileStore = create<ProfileStore>((set, get) => ({
         name: 'Celda Robótica 6-DOF',
         description: 'Manipulador industrial articulado con seguimiento visual de keypoints y estimación de fatiga mecánica en tiempo real.',
         assetType: 'robotics',
-        icon: '🤖',
+        icon: 'bot',
         color: '#8b5cf6',
         createdAt: Date.now(),
         updatedAt: Date.now(),

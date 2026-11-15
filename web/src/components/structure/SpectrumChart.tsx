@@ -11,6 +11,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer, Label
 } from 'recharts';
+import { BarChart2, X } from 'lucide-react';
 import { useModalStore, FEM_MODAL_FREQUENCIES } from '../../store/modalStore';
 import { findModalPeaks } from '../../lib/femUtils';
 
@@ -68,7 +69,7 @@ export const SpectrumChart = () => {
   if (!fftSpectrum || chartData.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-2">
-        <div className="text-3xl opacity-30">📊</div>
+        <BarChart2 className="w-6 h-6 opacity-40" />
         <p className="text-sm">Esperando datos del espectro FFT…</p>
         <p className="text-xs opacity-60">Conéctese al sistema MQTT para ver el espectro</p>
       </div>
@@ -98,7 +99,7 @@ export const SpectrumChart = () => {
               className="text-slate-500 hover:text-white text-xs ml-1"
               title="Deseleccionar modo"
             >
-              ✕
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}

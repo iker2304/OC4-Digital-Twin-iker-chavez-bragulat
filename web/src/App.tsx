@@ -33,9 +33,9 @@ function App() {
 
   if (isInitializing) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-slate-900">
-        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-gray-500 dark:text-gray-400 font-medium animate-pulse">Sincronizando con el servidor...</p>
+      <div className="flex h-screen w-screen flex-col items-center justify-center bg-zinc-50 dark:bg-[#0c0c0e]">
+        <div className="mb-3 h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100" />
+        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Sincronizando con el servidor…</p>
       </div>
     );
   }

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  Play, Pause, Square, Download, FolderOpen, Plus, Split, Sparkles, Save, X,
+} from 'lucide-react';
 import DatasetViewer from '../components/DatasetViewer';
 import { API_BASE_URL } from '../config/api';
+import { Badge, Button, Card, CardHeader, PageHeader, Stat, Tabs } from '../components/ui';
 
 type FieldSchema = {
   name: string;
@@ -117,8 +121,8 @@ export default function DatasetGeneration() {
   const [profiles, setProfiles] = useState<Array<{ name: string; config: DatasetConfig }>>(loadProfiles);
   const [profileName, setProfileName] = useState('');
   const [showViewer, setShowViewer] = useState(false);
+  const [pageSection, setPageSection] = useState<'monitor' | 'config' | 'yaml'>('monitor');
 
-  // Multi-dataset & YAML config management
   const [datasetsList, setDatasetsList] = useState<Array<{
     name: string;
     trainImages: number;
@@ -313,7 +317,7 @@ export default function DatasetGeneration() {
         fetchDatasetsAndYaml();
         setTimeout(() => setYamlSaveMsg(null), 3000);
       }
-    } catch (err) {
+    } catch {
       setYamlSaveMsg('Error: JSON inválido');
     }
   };
@@ -449,21 +453,17 @@ export default function DatasetGeneration() {
   const isPaused = status?.status === 'paused';
 
   return (
-    <div className="space-y-6">
-      {/* Multi-Dataset Manager Header */}
-      <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-bold">Gestor Multi-Dataset de Visión Artificial (YOLO Pose & BBox)</h2>
-            <p className="text-xs text-gray-500 dark:text-slate-400">
-              Crea colecciones de datos para distintos Gemelos Digitales, genera poses sintéticas, divide Train/Val y edita etiquetas.
-            </p>
-          </div>
+    <div className="space-y-6 pb-8">
+      <PageHeader
+        eyebrow="Datos y Visión Artificial"
+        title="Gestión y Generación de Datasets (YOLO Pose y BBox)"
+        description="Crea colecciones de datos para distintos gemelos digitales, genera poses sintéticas, divide particiones Train/Val y edita etiquetas."
+        actions={
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={activeDatasetName}
               onChange={(e) => setActiveDatasetName(e.target.value)}
-              className="px-3 py-2 rounded border border-gray-200 text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+              className="ui-input text-xs py-1.5 w-auto"
             >
               {datasetsList.map((d) => (
                 <option key={d.name} value={d.name}>
@@ -471,584 +471,558 @@ export default function DatasetGeneration() {
                 </option>
               ))}
             </select>
-            <button
-              onClick={handleQuickGenerateSamples}
-              className="px-3 py-2 rounded bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold"
-            >
-              + Generar Muestras Pose
-            </button>
-            <button
-              onClick={handleQuickSplit}
-              className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
-            >
-              Split Train/Val (80/20)
-            </button>
-            <button
-              onClick={() => setShowViewer(true)}
-              className="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
-            >
-              Abrir Explorador y Editor
-            </button>
+            <Button variant="secondary" size="sm" onClick={handleQuickGenerateSamples}>
+              <Sparkles className="w-3.5 h-3.5" /> Generar muestras
+            </Button>
+            <Button variant="secondary" size="sm" onClick={handleQuickSplit}>
+              <Split className="w-3.5 h-3.5" /> Split 80/20
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setShowViewer(true)}>
+              <FolderOpen className="w-3.5 h-3.5" /> Explorador y editor
+            </Button>
           </div>
-        </div>
+        }
+      />
 
-        {/* Create New Dataset Row */}
-        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-slate-700 flex flex-wrap items-center gap-3">
-          <span className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase">Crear Nuevo Dataset:</span>
+      {/* Quick Create Dataset Bar */}
+      <Card className="p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 flex-1">
+          <span className="ui-eyebrow shrink-0">Nuevo dataset:</span>
           <input
             type="text"
             value={newDatasetName}
             onChange={(e) => setNewDatasetName(e.target.value)}
             placeholder="Nombre (ej. RobotArm_Pose_v1, Bridge_SHM_v1)..."
-            className="px-3 py-1.5 rounded border border-gray-200 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-white min-w-[240px]"
+            className="ui-input text-xs max-w-xs"
           />
           <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-gray-500 dark:text-slate-400">Keypoints:</span>
+            <span className="text-gray-500">Keypoints:</span>
             <input
               type="number"
               min={1}
               max={64}
               value={newDatasetKeypoints}
               onChange={(e) => setNewDatasetKeypoints(Number(e.target.value))}
-              className="w-16 px-2 py-1.5 rounded border border-gray-200 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+              className="ui-input text-xs font-mono w-16"
             />
           </div>
-          <button
-            onClick={handleCreateDataset}
-            className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
-          >
-            Crear Dataset con Muestras Iniciales
-          </button>
+          <Button variant="secondary" size="sm" onClick={handleCreateDataset}>
+            <Plus className="w-3.5 h-3.5" /> Crear con muestras iniciales
+          </Button>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 space-y-6">
-          <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold">Estado en tiempo real</h3>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${isRunning ? 'bg-green-100 text-green-700' : isPaused ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
-                {status?.status || 'cargando'}
-              </span>
-            </div>
-            <div className="mt-4">
-              <div className="h-3 w-full bg-gray-200 rounded-full overflow-hidden dark:bg-slate-700">
-                <div className="h-full bg-blue-600" style={{ width: `${status?.metrics.progressPercent || 0}%` }} />
-              </div>
-              <div className="mt-2 text-sm text-gray-600 dark:text-slate-300">
-                {status?.metrics.progressPercent?.toFixed(2) || '0.00'}% completado
-              </div>
-              {status?.outputDir ? <div className="mt-2 text-xs text-gray-500 break-all">Salida: {status.outputDir}</div> : null}
-              {status?.command ? <div className="mt-1 text-xs text-gray-500 break-all">Comando: {status.command}</div> : null}
-            </div>
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <div className="text-gray-500 dark:text-slate-400">Tiempo transcurrido</div>
-                <div className="font-semibold">{formatDuration(status?.metrics.elapsedSeconds ?? null)}</div>
-              </div>
-              <div>
-                <div className="text-gray-500 dark:text-slate-400">Tiempo restante</div>
-                <div className="font-semibold">{formatDuration(status?.metrics.remainingSeconds ?? null)}</div>
-              </div>
-              <div>
-                <div className="text-gray-500 dark:text-slate-400">Velocidad</div>
-                <div className="font-semibold">{status?.metrics.recordsPerSecond?.toFixed(2) || '0.00'} reg/s</div>
-              </div>
-              <div>
-                <div className="text-gray-500 dark:text-slate-400">Registros</div>
-                <div className="font-semibold">
-                  {status?.metrics.processed || 0}/
-                  {status?.metrics.total || (mode === 'blender' ? blenderConfig.numRenders : config.datasetSize)}
+        <Tabs
+          value={pageSection}
+          onChange={setPageSection}
+          items={[
+            { value: 'monitor', label: 'Ejecución y métricas' },
+            { value: 'config', label: 'Configuración de generador' },
+            { value: 'yaml', label: 'Pipeline YAML' },
+          ]}
+        />
+      </Card>
+
+      {pageSection === 'monitor' && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="xl:col-span-2 space-y-6">
+            {/* Execution Controls + Progress */}
+            <Card className="p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Estado del generador</h3>
+                  <Badge variant={isRunning ? 'success' : isPaused ? 'warning' : 'neutral'}>
+                    {status?.status || 'inactivo'}
+                  </Badge>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="inline-flex rounded-md border border-gray-200 dark:border-slate-800 p-0.5 mr-2">
+                    <button
+                      onClick={() => setMode('blender')}
+                      disabled={isRunning || isPaused}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                        mode === 'blender'
+                          ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                          : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      Blender
+                    </button>
+                    <button
+                      onClick={() => setMode('synthetic')}
+                      disabled={isRunning || isPaused}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                        mode === 'synthetic'
+                          ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                          : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      Sintético
+                    </button>
+                  </div>
+
+                  <Button variant="primary" size="sm" onClick={startGeneration} disabled={isRunning || isPaused}>
+                    <Play className="w-3.5 h-3.5" /> Iniciar
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={pauseGeneration} disabled={!isRunning}>
+                    <Pause className="w-3.5 h-3.5" /> Pausar
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={resumeGeneration} disabled={!isPaused}>
+                    <Play className="w-3.5 h-3.5" /> Reanudar
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={stopGeneration} disabled={!isRunning && !isPaused}>
+                    <Square className="w-3.5 h-3.5" /> Detener
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={exportReport}>
+                    <Download className="w-3.5 h-3.5" /> Reporte
+                  </Button>
                 </div>
               </div>
-            </div>
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+
               <div>
-                <div className="text-gray-500 dark:text-slate-400">Válidos</div>
-                <div className="font-semibold">{status?.metrics.valid || 0}</div>
-              </div>
-              <div>
-                <div className="text-gray-500 dark:text-slate-400">Inválidos</div>
-                <div className="font-semibold">{status?.metrics.invalid || 0}</div>
-              </div>
-              <div>
-                <div className="text-gray-500 dark:text-slate-400">Tasa de errores</div>
-                <div className="font-semibold">{status?.metrics.errorRate?.toFixed(2) || '0.00'}%</div>
-              </div>
-              <div>
-                <div className="text-gray-500 dark:text-slate-400">CPU / Mem / Disco</div>
-                <div className="font-semibold">
-                  {status?.system.cpu?.toFixed(1) || '0.0'}% / {status?.system.memory?.toFixed(1) || '0.0'}% /{' '}
-                  {status?.system.disk?.toFixed(1) || '0.0'}%
+                <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden dark:bg-slate-800">
+                  <div
+                    className="h-full bg-blue-600 transition-all duration-300"
+                    style={{ width: `${status?.metrics.progressPercent || 0}%` }}
+                  />
+                </div>
+                <div className="mt-1.5 flex justify-between text-xs text-gray-500">
+                  <span>{status?.metrics.progressPercent?.toFixed(2) || '0.00'}% completado</span>
+                  {status?.outputDir && <span className="font-mono truncate max-w-md">Salida: {status.outputDir}</span>}
                 </div>
               </div>
+
+              {errors.length > 0 && (
+                <div className="text-xs text-red-600 space-y-1">
+                  {errors.map((err) => (
+                    <div key={err}>{err}</div>
+                  ))}
+                </div>
+              )}
+              {apiError && <div className="text-xs text-red-600">{apiError}</div>}
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+                <Stat
+                  label="Transcurrido / Restante"
+                  value={formatDuration(status?.metrics.elapsedSeconds ?? null)}
+                  sub={`Restante: ${formatDuration(status?.metrics.remainingSeconds ?? null)}`}
+                />
+                <Stat
+                  label="Velocidad"
+                  value={`${status?.metrics.recordsPerSecond?.toFixed(2) || '0.00'} reg/s`}
+                  sub={`${status?.metrics.processed || 0} / ${status?.metrics.total || (mode === 'blender' ? blenderConfig.numRenders : config.datasetSize)}`}
+                />
+                <Stat
+                  label="Válidos / Inválidos"
+                  value={`${status?.metrics.valid || 0} / ${status?.metrics.invalid || 0}`}
+                  sub={`Tasa error: ${status?.metrics.errorRate?.toFixed(2) || '0.00'}%`}
+                />
+                <Stat
+                  label="CPU / Mem / Disco"
+                  value={`${status?.system.cpu?.toFixed(1) || '0.0'}%`}
+                  sub={`Mem ${status?.system.memory?.toFixed(1) || '0.0'}% · Disco ${status?.system.disk?.toFixed(1) || '0.0'}%`}
+                />
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="p-5">
+                <h3 className="ui-eyebrow mb-4">Throughput en tiempo real</h3>
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={throughputHistory}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                      <XAxis dataKey="timestamp" tick={false} stroke="var(--chart-axis)" />
+                      <YAxis stroke="var(--chart-axis)" fontSize={11} />
+                      <Tooltip labelFormatter={(label) => new Date(Number(label)).toLocaleTimeString()} />
+                      <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={1.75} dot={false} isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
+              <Card className="p-5">
+                <h3 className="ui-eyebrow mb-4">Distribución de clases</h3>
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={distributionData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                      <XAxis dataKey="name" stroke="var(--chart-axis)" fontSize={11} />
+                      <YAxis stroke="var(--chart-axis)" fontSize={11} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
             </div>
+
+            <Card className="p-5">
+              <h3 className="ui-eyebrow mb-3">Muestras de registros</h3>
+              <div className="overflow-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-200 dark:border-slate-800">
+                      {status?.samples?.[0]
+                        ? Object.keys(status.samples[0]).map((key) => (
+                            <th key={key} className="py-2 pr-4 font-medium">
+                              {key}
+                            </th>
+                          ))
+                        : null}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                    {status?.samples?.map((row, idx) => (
+                      <tr key={idx}>
+                        {Object.values(row).map((value, index) => (
+                          <td key={index} className="py-2 pr-4 font-mono">
+                            {String(value)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!status?.samples?.length && <div className="text-xs text-gray-500 py-4">Sin muestras todavía.</div>}
+              </div>
+            </Card>
           </div>
 
-          <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-            <h3 className="text-lg font-bold mb-4">Controles de ejecución</h3>
-            <div className="flex flex-wrap items-center gap-2 mb-4 text-sm">
-              <span className="text-gray-500 dark:text-slate-400">Modo</span>
-              <button
-                onClick={() => setMode('blender')}
-                disabled={isRunning || isPaused}
-                className={`px-3 py-1 rounded ${mode === 'blender' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700'}`}
-              >
-                Blender
-              </button>
-              <button
-                onClick={() => setMode('synthetic')}
-                disabled={isRunning || isPaused}
-                className={`px-3 py-1 rounded ${mode === 'synthetic' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700'}`}
-              >
-                Sintético
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={startGeneration}
-                disabled={isRunning || isPaused}
-                className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium disabled:opacity-50"
-              >
-                Iniciar
-              </button>
-              <button
-                onClick={pauseGeneration}
-                disabled={!isRunning}
-                className="px-4 py-2 rounded bg-yellow-500 text-white text-sm font-medium disabled:opacity-50"
-              >
-                Pausar
-              </button>
-              <button
-                onClick={resumeGeneration}
-                disabled={!isPaused}
-                className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium disabled:opacity-50"
-              >
-                Reanudar
-              </button>
-              <button
-                onClick={stopGeneration}
-                disabled={!isRunning && !isPaused}
-                className="px-4 py-2 rounded bg-red-600 text-white text-sm font-medium disabled:opacity-50"
-              >
-                Detener
-              </button>
-              <button
-                onClick={exportReport}
-                className="px-4 py-2 rounded bg-gray-900 text-white text-sm font-medium"
-              >
-                Exportar reporte
-              </button>
-              <button
-                onClick={() => setShowViewer(true)}
-                className="px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium"
-              >
-                Ver Dataset
-              </button>
-            </div>
-            {errors.length > 0 ? (
-              <div className="mt-3 text-sm text-red-600 space-y-1">
-                {errors.map((err) => (
-                  <div key={err}>{err}</div>
-                ))}
-              </div>
-            ) : null}
-            {apiError ? <div className="mt-3 text-sm text-red-600">{apiError}</div> : null}
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-              <h3 className="text-lg font-bold mb-4">Throughput en tiempo real</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={throughputHistory}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-                    <XAxis dataKey="timestamp" tick={false} stroke="var(--chart-axis)" />
-                    <YAxis stroke="var(--chart-axis)" />
-                    <Tooltip labelFormatter={(label) => new Date(Number(label)).toLocaleTimeString()} />
-                    <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-              <h3 className="text-lg font-bold mb-4">Distribución de clases</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={distributionData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-                    <XAxis dataKey="name" stroke="var(--chart-axis)" />
-                    <YAxis stroke="var(--chart-axis)" />
-                    <Tooltip />
-                    <Bar dataKey="value" fill="#10b981" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-            <h3 className="text-lg font-bold mb-4">Muestras de registros</h3>
-            <div className="overflow-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 dark:text-slate-400">
-                    {status?.samples?.[0]
-                      ? Object.keys(status.samples[0]).map((key) => (
-                          <th key={key} className="py-2 pr-4">
-                            {key}
-                          </th>
-                        ))
-                      : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {status?.samples?.map((row, idx) => (
-                    <tr key={idx} className="border-t border-gray-100 dark:border-slate-700">
-                      {Object.values(row).map((value, index) => (
-                        <td key={index} className="py-2 pr-4">
-                          {String(value)}
+          <div className="space-y-6">
+            <Card className="p-5">
+              <h3 className="ui-eyebrow mb-3">Historial de ejecuciones</h3>
+              <div className="overflow-auto text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-200 dark:border-slate-800">
+                      <th className="py-2 pr-3 font-medium">Run</th>
+                      <th className="py-2 pr-3 font-medium">Estado</th>
+                      <th className="py-2 pr-3 font-medium">Procesados</th>
+                      <th className="py-2 pr-3 font-medium">Errores</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                    {(status?.history || []).slice(-6).map((run) => (
+                      <tr key={run.runId}>
+                        <td className="py-2 pr-3 font-mono">{run.runId.slice(0, 8)}</td>
+                        <td className="py-2 pr-3">{run.status}</td>
+                        <td className="py-2 pr-3 font-mono">
+                          {run.processed}/{run.total}
                         </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!status?.samples?.length ? <div className="text-sm text-gray-500">Sin muestras todavía.</div> : null}
-            </div>
+                        <td className="py-2 pr-3 font-mono">{run.errorRate?.toFixed(2)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!status?.history?.length && <div className="text-xs text-gray-500 py-2">Sin ejecuciones previas.</div>}
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <h3 className="ui-eyebrow mb-3">Notificaciones recientes</h3>
+              <div className="space-y-2 text-xs">
+                {(status?.notifications || []).slice(-6).map((note, index) => (
+                  <div key={`${note.timestamp}-${index}`} className="flex flex-col bg-gray-50 dark:bg-slate-800/60 p-2.5 rounded-md border border-gray-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-semibold text-gray-900 dark:text-white">{note.kind.toUpperCase()}</span>
+                      <span className="text-[10px] font-mono text-gray-400">{new Date(note.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <span className="text-gray-600 dark:text-gray-300">{note.message}</span>
+                  </div>
+                ))}
+                {!status?.notifications?.length && <div className="text-xs text-gray-500">Sin eventos recientes.</div>}
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <h3 className="ui-eyebrow mb-3">Logs detallados</h3>
+              <div className="space-y-1.5 text-xs max-h-64 overflow-auto font-mono">
+                {(status?.logs || []).slice(-40).map((log, index) => (
+                  <div key={`${log.timestamp}-${index}`} className="border-b border-gray-100 dark:border-slate-800 pb-1.5">
+                    <span className="text-gray-400 mr-2">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
+                    <span className="font-semibold mr-1.5">{log.level}:</span>
+                    <span className="text-gray-700 dark:text-gray-300">{log.message}</span>
+                  </div>
+                ))}
+                {!status?.logs?.length && <div className="text-xs text-gray-500 font-sans">Sin logs todavía.</div>}
+              </div>
+            </Card>
           </div>
         </div>
+      )}
 
-        <div className="space-y-6">
-          <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-            <h3 className="text-lg font-bold mb-4">Notificaciones</h3>
-            <div className="space-y-2 text-sm">
-              {(status?.notifications || []).slice(-6).map((note, index) => (
-                <div key={`${note.timestamp}-${index}`} className="flex flex-col bg-gray-50 dark:bg-slate-700 p-2 rounded">
-                  <span className="font-semibold">{note.kind.toUpperCase()}</span>
-                  <span>{note.message}</span>
-                  <span className="text-xs text-gray-500">{new Date(note.timestamp).toLocaleTimeString()}</span>
-                </div>
-              ))}
-              {!status?.notifications?.length ? <div className="text-gray-500">Sin eventos recientes.</div> : null}
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-            <h3 className="text-lg font-bold mb-4">Historial de ejecuciones</h3>
-            <div className="overflow-auto text-sm">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-gray-500 dark:text-slate-400">
-                    <th className="py-2 pr-3">Run</th>
-                    <th className="py-2 pr-3">Estado</th>
-                    <th className="py-2 pr-3">Procesados</th>
-                    <th className="py-2 pr-3">Errores</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(status?.history || []).slice(-6).map((run) => (
-                    <tr key={run.runId} className="border-t border-gray-100 dark:border-slate-700">
-                      <td className="py-2 pr-3">{run.runId.slice(0, 8)}</td>
-                      <td className="py-2 pr-3">{run.status}</td>
-                      <td className="py-2 pr-3">
-                        {run.processed}/{run.total}
-                      </td>
-                      <td className="py-2 pr-3">{run.errorRate?.toFixed(2)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!status?.history?.length ? <div className="text-gray-500">Sin ejecuciones previas.</div> : null}
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-            <h3 className="text-lg font-bold mb-4">Logs detallados</h3>
-            <div className="space-y-2 text-xs max-h-64 overflow-auto">
-              {(status?.logs || []).slice(-40).map((log, index) => (
-                <div key={`${log.timestamp}-${index}`} className="border border-gray-100 dark:border-slate-700 rounded p-2">
-                  <div className="text-gray-500">{new Date(log.timestamp).toLocaleTimeString()}</div>
-                  <div className="font-semibold">{log.level}</div>
-                  <div>{log.message}</div>
-                </div>
-              ))}
-              {!status?.logs?.length ? <div className="text-gray-500">Sin logs todavía.</div> : null}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-        <h3 className="text-lg font-bold">Configuración</h3>
-        {mode === 'blender' ? (
-          <div className="mt-4 space-y-4">
-            <div className="text-sm text-gray-600 dark:text-slate-300">
-              Cada ejecución crea una carpeta nueva dentro de data/synthetic_dataset/pose.
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="text-sm text-gray-600 dark:text-slate-300">Número de renders</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={blenderConfig.numRenders}
-                  onChange={(e) => setBlenderConfig({ ...blenderConfig, numRenders: Number(e.target.value) })}
-                  className="mt-1 w-full px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-gray-600 dark:text-slate-300">Resolución X</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={blenderConfig.resolutionX}
-                  onChange={(e) => setBlenderConfig({ ...blenderConfig, resolutionX: Number(e.target.value) })}
-                  className="mt-1 w-full px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-gray-600 dark:text-slate-300">Resolución Y</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={blenderConfig.resolutionY}
-                  onChange={(e) => setBlenderConfig({ ...blenderConfig, resolutionY: Number(e.target.value) })}
-                  className="mt-1 w-full px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                />
-              </div>
-            </div>
-            {status?.outputDir ? <div className="text-xs text-gray-500 break-all">Salida actual: {status.outputDir}</div> : null}
-          </div>
-        ) : (
-          <>
-            <div className="mt-4 flex items-center justify-between gap-4">
-              <h4 className="text-base font-semibold">Perfiles sintéticos</h4>
-              <div className="flex items-center gap-2">
-                <input
-                  value={profileName}
-                  onChange={(e) => setProfileName(e.target.value)}
-                  placeholder="Nombre del perfil"
-                  className="px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                />
-                <button onClick={saveProfile} className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium">
-                  Guardar perfil
-                </button>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-              {profiles.map((profile) => (
-                <div key={profile.name} className="flex items-center gap-2 bg-gray-100 dark:bg-slate-700 px-3 py-1 rounded-full">
-                  <button onClick={() => loadProfile(profile.name)} className="font-semibold">
-                    {profile.name}
-                  </button>
-                  <button onClick={() => deleteProfile(profile.name)} className="text-red-500">
-                    ×
-                  </button>
-                </div>
-              ))}
-              {!profiles.length ? <span className="text-gray-500">Sin perfiles guardados.</span> : null}
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="space-y-4">
+      {pageSection === 'config' && (
+        <Card className="p-6">
+          <CardHeader title="Parámetros de generación" subtitle={mode === 'blender' ? 'Configuración de renderizado sintético en Blender' : 'Esquema y reglas del generador tabular sintético'} />
+          {mode === 'blender' ? (
+            <div className="space-y-4">
+              <p className="text-xs text-gray-500">
+                Cada ejecución crea una carpeta nueva dentro de <code className="font-mono">data/synthetic_dataset/pose</code>.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600 dark:text-slate-300">Tamaño del dataset</label>
+                  <label className="ui-label">Número de renders</label>
                   <input
                     type="number"
                     min={1}
-                    value={config.datasetSize}
-                    onChange={(e) => setConfig({ ...config, datasetSize: Number(e.target.value) })}
-                    className="mt-1 w-full px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                    value={blenderConfig.numRenders}
+                    onChange={(e) => setBlenderConfig({ ...blenderConfig, numRenders: Number(e.target.value) })}
+                    className="ui-input font-mono"
                   />
                 </div>
-
                 <div>
-                  <label className="text-sm text-gray-600 dark:text-slate-300">Formato de salida</label>
-                  <select
-                    value={config.outputFormat}
-                    onChange={(e) => setConfig({ ...config, outputFormat: e.target.value as DatasetConfig['outputFormat'] })}
-                    className="mt-1 w-full px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                  >
-                    <option value="jsonl">JSONL</option>
-                    <option value="csv">CSV</option>
-                    <option value="parquet">Parquet</option>
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={config.validationOptions.strict}
-                      onChange={(e) =>
-                        setConfig({ ...config, validationOptions: { ...config.validationOptions, strict: e.target.checked } })
-                      }
-                    />
-                    Validación estricta
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={config.validationOptions.allowNulls}
-                      onChange={(e) =>
-                        setConfig({ ...config, validationOptions: { ...config.validationOptions, allowNulls: e.target.checked } })
-                      }
-                    />
-                    Permitir nulos
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={config.balancing.enabled}
-                      onChange={(e) => setConfig({ ...config, balancing: { ...config.balancing, enabled: e.target.checked } })}
-                    />
-                    Balanceo activo
-                  </label>
-                  <select
-                    value={config.balancing.strategy}
-                    onChange={(e) =>
-                      setConfig({ ...config, balancing: { ...config.balancing, strategy: e.target.value as DatasetConfig['balancing']['strategy'] } })
-                    }
-                    className="px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                  >
-                    <option value="uniform">Uniforme</option>
-                    <option value="weighted">Ponderado</option>
-                    <option value="custom">Personalizado</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-sm text-gray-600 dark:text-slate-300">Calidad: tasa máxima de errores</label>
+                  <label className="ui-label">Resolución X (px)</label>
                   <input
                     type="number"
-                    min={0}
-                    max={0.5}
-                    step={0.01}
-                    value={config.quality.maxErrorRate}
-                    onChange={(e) => setConfig({ ...config, quality: { maxErrorRate: Number(e.target.value) } })}
-                    className="mt-1 w-full px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                    min={1}
+                    value={blenderConfig.resolutionX}
+                    onChange={(e) => setBlenderConfig({ ...blenderConfig, resolutionX: Number(e.target.value) })}
+                    className="ui-input font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="ui-label">Resolución Y (px)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={blenderConfig.resolutionY}
+                    onChange={(e) => setBlenderConfig({ ...blenderConfig, resolutionY: Number(e.target.value) })}
+                    className="ui-input font-mono"
                   />
                 </div>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <h4 className="text-base font-semibold">Estructura de campos</h4>
-                  <button onClick={addField} className="px-3 py-1 rounded bg-gray-200 text-sm dark:bg-slate-700">
-                    Añadir campo
-                  </button>
-                </div>
-                <div className="mt-3 space-y-3">
-                  {config.fieldSchema.map((field, index) => (
-                    <div key={`${field.name}-${index}`} className="border border-gray-100 dark:border-slate-700 rounded-lg p-3 space-y-2">
-                      <div className="grid grid-cols-2 gap-3">
-                        <input
-                          value={field.name}
-                          onChange={(e) => updateField(index, { name: e.target.value })}
-                          placeholder="Nombre del campo"
-                          className="px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                        />
-                        <select
-                          value={field.type}
-                          onChange={(e) => updateField(index, { type: e.target.value as FieldSchema['type'] })}
-                          className="px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                        >
-                          <option value="integer">Integer</option>
-                          <option value="float">Float</option>
-                          <option value="categorical">Categorical</option>
-                          <option value="string">String</option>
-                        </select>
-                      </div>
-                      {(field.type === 'integer' || field.type === 'float') && (
-                        <div className="grid grid-cols-2 gap-3">
-                          <input
-                            type="number"
-                            value={field.min ?? ''}
-                            onChange={(e) => updateField(index, { min: Number(e.target.value) })}
-                            placeholder="Min"
-                            className="px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                          />
-                          <input
-                            type="number"
-                            value={field.max ?? ''}
-                            onChange={(e) => updateField(index, { max: Number(e.target.value) })}
-                            placeholder="Max"
-                            className="px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                          />
-                        </div>
-                      )}
-                      {field.type === 'categorical' && (
-                        <input
-                          value={field.values?.join(',') || ''}
-                          onChange={(e) =>
-                            updateField(index, { values: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })
-                          }
-                          placeholder="Valores separados por comas"
-                          className="px-3 py-2 rounded border border-gray-200 text-sm text-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                        />
-                      )}
-                      <div className="flex justify-end">
-                        <button onClick={() => removeField(index)} className="text-xs text-red-500">
-                          Eliminar campo
+              {status?.outputDir && <div className="text-xs text-gray-500 font-mono break-all">Salida actual: {status.outputDir}</div>}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-gray-200 dark:border-slate-800">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Perfiles guardados</h4>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    {profiles.map((profile) => (
+                      <div key={profile.name} className="inline-flex items-center gap-1.5 bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-gray-200 dark:border-slate-700">
+                        <button onClick={() => loadProfile(profile.name)} className="font-medium text-gray-800 dark:text-gray-200">
+                          {profile.name}
+                        </button>
+                        <button onClick={() => deleteProfile(profile.name)} className="text-gray-400 hover:text-red-500">
+                          <X className="w-3 h-3" />
                         </button>
                       </div>
-                    </div>
-                  ))}
-                  {!config.fieldSchema.length ? <div className="text-sm text-gray-500">Añade campos para generar datos.</div> : null}
+                    ))}
+                    {!profiles.length && <span className="text-gray-400">Sin perfiles guardados.</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    placeholder="Nombre del perfil"
+                    className="ui-input text-xs w-48"
+                  />
+                  <Button variant="secondary" size="sm" onClick={saveProfile}>
+                    <Save className="w-3.5 h-3.5" /> Guardar perfil
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div>
+                    <label className="ui-label">Tamaño del dataset</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={config.datasetSize}
+                      onChange={(e) => setConfig({ ...config, datasetSize: Number(e.target.value) })}
+                      className="ui-input font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="ui-label">Formato de salida</label>
+                    <select
+                      value={config.outputFormat}
+                      onChange={(e) => setConfig({ ...config, outputFormat: e.target.value as DatasetConfig['outputFormat'] })}
+                      className="ui-input"
+                    >
+                      <option value="jsonl">JSONL</option>
+                      <option value="csv">CSV</option>
+                      <option value="parquet">Parquet</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={config.validationOptions.strict}
+                        onChange={(e) =>
+                          setConfig({ ...config, validationOptions: { ...config.validationOptions, strict: e.target.checked } })
+                        }
+                      />
+                      Validación estricta
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={config.validationOptions.allowNulls}
+                        onChange={(e) =>
+                          setConfig({ ...config, validationOptions: { ...config.validationOptions, allowNulls: e.target.checked } })
+                        }
+                      />
+                      Permitir nulos
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 items-center">
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={config.balancing.enabled}
+                        onChange={(e) => setConfig({ ...config, balancing: { ...config.balancing, enabled: e.target.checked } })}
+                      />
+                      Balanceo activo
+                    </label>
+                    <select
+                      value={config.balancing.strategy}
+                      onChange={(e) =>
+                        setConfig({ ...config, balancing: { ...config.balancing, strategy: e.target.value as DatasetConfig['balancing']['strategy'] } })
+                      }
+                      className="ui-input text-xs"
+                    >
+                      <option value="uniform">Uniforme</option>
+                      <option value="weighted">Ponderado</option>
+                      <option value="custom">Personalizado</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="ui-label">Calidad: tasa máxima de errores</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={0.5}
+                      step={0.01}
+                      value={config.quality.maxErrorRate}
+                      onChange={(e) => setConfig({ ...config, quality: { maxErrorRate: Number(e.target.value) } })}
+                      className="ui-input font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Estructura de campos</h4>
+                    <Button variant="secondary" size="sm" onClick={addField}>
+                      <Plus className="w-3.5 h-3.5" /> Añadir campo
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {config.fieldSchema.map((field, index) => (
+                      <div key={`${field.name}-${index}`} className="border border-gray-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
+                        <div className="grid grid-cols-2 gap-3">
+                          <input
+                            value={field.name}
+                            onChange={(e) => updateField(index, { name: e.target.value })}
+                            placeholder="Nombre del campo"
+                            className="ui-input text-xs"
+                          />
+                          <select
+                            value={field.type}
+                            onChange={(e) => updateField(index, { type: e.target.value as FieldSchema['type'] })}
+                            className="ui-input text-xs"
+                          >
+                            <option value="integer">Integer</option>
+                            <option value="float">Float</option>
+                            <option value="categorical">Categorical</option>
+                            <option value="string">String</option>
+                          </select>
+                        </div>
+                        {(field.type === 'integer' || field.type === 'float') && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <input
+                              type="number"
+                              value={field.min ?? ''}
+                              onChange={(e) => updateField(index, { min: Number(e.target.value) })}
+                              placeholder="Min"
+                              className="ui-input text-xs font-mono"
+                            />
+                            <input
+                              type="number"
+                              value={field.max ?? ''}
+                              onChange={(e) => updateField(index, { max: Number(e.target.value) })}
+                              placeholder="Max"
+                              className="ui-input text-xs font-mono"
+                            />
+                          </div>
+                        )}
+                        {field.type === 'categorical' && (
+                          <input
+                            value={field.values?.join(',') || ''}
+                            onChange={(e) =>
+                              updateField(index, { values: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })
+                            }
+                            placeholder="Valores separados por comas"
+                            className="ui-input text-xs"
+                          />
+                        )}
+                        <div className="flex justify-end">
+                          <button onClick={() => removeField(index)} className="text-xs text-red-600 hover:underline">
+                            Eliminar campo
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {!config.fieldSchema.length && <div className="text-xs text-gray-500">Añade campos para generar datos.</div>}
+                  </div>
                 </div>
               </div>
             </div>
-          </>
-        )}
-      </div>
+          )}
+        </Card>
+      )}
 
-      {/* YAML Config Editor (blender.yaml, annotation.yaml, randomization.yaml, main.yaml) */}
-      <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <div>
-            <h3 className="text-lg font-bold">Configuración Avanzada del Pipeline (src/config/*.yaml)</h3>
-            <p className="text-xs text-gray-500 dark:text-slate-400">
-              Personaliza las escenas Blender, objetos y keypoints de anotación, o parámetros de randomización.
-            </p>
+      {pageSection === 'yaml' && (
+        <Card className="p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Configuración avanzada del pipeline (src/config/*.yaml)</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Personaliza las escenas Blender, objetos y keypoints de anotación o parámetros de randomización.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {['annotation.yaml', 'blender.yaml', 'randomization.yaml', 'main.yaml'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => handleSelectYamlTab(tab)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-colors border ${
+                    selectedYamlTab === tab
+                      ? 'bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100'
+                      : 'bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+              <Button variant="primary" size="sm" onClick={handleSaveYamlConfig}>
+                <Save className="w-3.5 h-3.5" /> Guardar {selectedYamlTab}
+              </Button>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {['annotation.yaml', 'blender.yaml', 'randomization.yaml', 'main.yaml'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => handleSelectYamlTab(tab)}
-                className={`px-3 py-1.5 rounded text-xs font-mono font-semibold transition-colors ${
-                  selectedYamlTab === tab
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-            <button
-              onClick={handleSaveYamlConfig}
-              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
-            >
-              Guardar {selectedYamlTab}
-            </button>
-          </div>
-        </div>
-        {yamlSaveMsg && (
-          <div className="mb-3 text-xs px-3 py-1.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-            {yamlSaveMsg}
-          </div>
-        )}
-        <textarea
-          value={yamlText}
-          onChange={(e) => setYamlText(e.target.value)}
-          rows={10}
-          className="w-full font-mono text-xs p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-200"
-        />
-      </div>
+          {yamlSaveMsg && (
+            <div className="mb-3 text-xs px-3 py-1.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+              {yamlSaveMsg}
+            </div>
+          )}
+          <textarea
+            value={yamlText}
+            onChange={(e) => setYamlText(e.target.value)}
+            rows={14}
+            className="ui-input font-mono text-xs"
+          />
+        </Card>
+      )}
 
       {showViewer && (
         <DatasetViewer

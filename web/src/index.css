@@ -2,40 +2,86 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color-scheme: light dark;
-  --color-primary: #1e3a8a;
-  --color-secondary: #f3f4f6;
+/* ──────────────────────────────────────────────────────────────
+   Design tokens
+   A neutral (zinc-based) palette with a single blue accent.
+   `gray` and `slate` are remapped to the same neutral scale so that
+   every page shares one consistent, low-saturation look.
+   ────────────────────────────────────────────────────────────── */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-gray-50: oklch(98.5% 0 0);
+  --color-gray-100: oklch(96.7% 0.001 286.375);
+  --color-gray-200: oklch(92% 0.004 286.32);
+  --color-gray-300: oklch(87.1% 0.006 286.286);
+  --color-gray-400: oklch(70.5% 0.015 286.067);
+  --color-gray-500: oklch(55.2% 0.016 285.938);
+  --color-gray-600: oklch(44.2% 0.017 285.786);
+  --color-gray-700: oklch(32% 0.012 285.805);
+  --color-gray-800: oklch(23% 0.006 286.033);
+  --color-gray-900: oklch(18% 0.005 285.885);
+  --color-gray-950: oklch(14.5% 0.004 285.823);
+
+  --color-slate-50: oklch(98.5% 0 0);
+  --color-slate-100: oklch(96.7% 0.001 286.375);
+  --color-slate-200: oklch(92% 0.004 286.32);
+  --color-slate-300: oklch(87.1% 0.006 286.286);
+  --color-slate-400: oklch(70.5% 0.015 286.067);
+  --color-slate-500: oklch(55.2% 0.016 285.938);
+  --color-slate-600: oklch(44.2% 0.017 285.786);
+  --color-slate-700: oklch(32% 0.012 285.805);
+  --color-slate-800: oklch(23% 0.006 286.033);
+  --color-slate-900: oklch(18% 0.005 285.885);
+  --color-slate-950: oklch(14.5% 0.004 285.823);
+
+  --color-primary: #2563eb;
+  --color-secondary: #f4f4f5;
   --color-success: #10b981;
   --color-danger: #ef4444;
 
-  --app-bg: #f9fafb;
-  --app-fg: #111827;
-  --chart-grid: #d1d5db;
-  --chart-axis: #6b7280;
+  /* Calmer radii and shadows across the whole app */
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 0.875rem;
+  --shadow-md: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 2px 6px -1px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 2px 4px -1px rgb(0 0 0 / 0.05), 0 6px 16px -4px rgb(0 0 0 / 0.08);
+  --shadow-xl: 0 4px 8px -2px rgb(0 0 0 / 0.06), 0 12px 24px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 8px 16px -4px rgb(0 0 0 / 0.08), 0 20px 40px -8px rgb(0 0 0 / 0.14);
+}
+
+:root {
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  font-weight: 400;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: light dark;
+
+  --app-bg: #fafafa;
+  --app-fg: #18181b;
+  --surface: #ffffff;
+  --border: #e4e4e7;
+  --muted: #71717a;
+  --chart-grid: #e4e4e7;
+  --chart-axis: #71717a;
   --chart-tooltip-bg: #ffffff;
-  --chart-tooltip-border: #e5e7eb;
-  --chart-tooltip-fg: #111827;
+  --chart-tooltip-border: #e4e4e7;
+  --chart-tooltip-fg: #18181b;
 }
 
 .dark {
-  --app-bg: #111827;
-  --app-fg: rgba(255, 255, 255, 0.87);
-  --chart-grid: #374151;
-  --chart-axis: #9ca3af;
-  --chart-tooltip-bg: #1f2937;
-  --chart-tooltip-border: #374151;
-  --chart-tooltip-fg: #f3f4f6;
-}
-
-@theme {
-  --color-primary: var(--color-primary);
-  --color-secondary: var(--color-secondary);
-  --color-success: var(--color-success);
-  --color-danger: var(--color-danger);
+  --app-bg: #0c0c0e;
+  --app-fg: #f4f4f5;
+  --surface: #141416;
+  --border: #27272a;
+  --muted: #a1a1aa;
+  --chart-grid: #27272a;
+  --chart-axis: #a1a1aa;
+  --chart-tooltip-bg: #18181b;
+  --chart-tooltip-border: #27272a;
+  --chart-tooltip-fg: #f4f4f5;
 }
 
 html,
@@ -50,21 +96,52 @@ body {
   min-height: 100vh;
 }
 
+::selection {
+  background: rgb(37 99 235 / 0.18);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Reusable component classes (used together with components/ui)
+   ────────────────────────────────────────────────────────────── */
+@layer components {
+  .ui-card {
+    @apply rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/60;
+  }
+
+  .ui-input {
+    @apply w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 transition-colors
+      focus:border-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/5
+      dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-600 dark:focus:ring-white/5;
+  }
+
+  .ui-label {
+    @apply mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400;
+  }
+
+  .ui-eyebrow {
+    @apply text-[11px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400;
+  }
+
+  .ui-kbd {
+    @apply rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400;
+  }
+}
+
 /* Pipeline Editor Styles */
 .pipeline-node {
   user-select: none;
 }
 
 .dark .pipeline-node > div {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(30, 41, 59, 0.85)) !important;
+  background: rgba(24, 24, 27, 0.95) !important;
 }
 
 .dark .pipeline-node .text-gray-500 {
-  color: #94a3b8;
+  color: #a1a1aa;
 }
 
 .dark .pipeline-node .bg-gray-100 {
-  background-color: rgba(51, 65, 85, 0.6);
+  background-color: rgba(39, 39, 42, 0.6);
 }
 
 /* Custom scrollbar */
@@ -75,8 +152,14 @@ body {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #94a3b8;
+  background: #a1a1aa;
   border-radius: 999px;
+}
+
+/* Thin, unobtrusive scrollbars everywhere */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(161 161 170 / 0.4) transparent;
 }
 
 /* Line clamp utility */
@@ -88,28 +171,31 @@ body {
 }
 
 /* ── React Flow overrides ── */
+.react-flow__controls {
+  box-shadow: none !important;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
 .react-flow__controls button {
-  background: var(--card-bg, white);
-  border: 1px solid var(--border-color, #e5e7eb);
-  color: #6b7280;
+  background: var(--surface);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
 }
 .react-flow__controls button:hover {
-  background: #f9fafb;
+  background: var(--app-bg);
 }
 .react-flow__minimap {
-  background: var(--card-bg, white) !important;
-  border-radius: 12px;
-}
-.dark .react-flow__controls button {
-  background: #1e293b;
-  border-color: #334155;
-  color: #94a3b8;
-}
-.dark .react-flow__minimap {
-  background: #1e293b !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 .react-flow__edge-path {
-  stroke: #6366f1;
+  stroke: #a1a1aa;
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #2563eb;
 }
 .react-flow__handle {
   transition: transform 0.15s ease;
@@ -120,15 +206,15 @@ body {
 
 /* ── react-grid-layout overrides ── */
 .react-grid-item.react-draggable-dragging {
-  box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 0 0 2px #8b5cf6 !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px #2563eb !important;
   z-index: 100;
   cursor: grabbing;
 }
 .react-grid-item > .react-resizable-handle::after {
-  border-color: #8b5cf650;
+  border-color: #a1a1aa80;
 }
 .react-grid-placeholder {
-  background: #8b5cf620 !important;
-  border: 2px dashed #8b5cf660 !important;
-  border-radius: 16px !important;
+  background: rgb(37 99 235 / 0.08) !important;
+  border: 1px dashed rgb(37 99 235 / 0.4) !important;
+  border-radius: 12px !important;
 }

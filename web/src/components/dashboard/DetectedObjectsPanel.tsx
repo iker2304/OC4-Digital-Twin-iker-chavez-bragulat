@@ -1,5 +1,6 @@
 import { useTwinStore } from '../../store/twinStore';
-import { Target, MapPin, Activity } from 'lucide-react';
+import { Target, MapPin } from 'lucide-react';
+import { Badge, Card } from '../ui';
 
 type DetectionItem = {
   id?: string | number;
@@ -14,9 +15,7 @@ type OverlayDataWithDetections = {
   detections?: DetectionItem[];
 };
 
-const isDetectionList = (value: unknown): value is DetectionItem[] => {
-  return Array.isArray(value);
-};
+const isDetectionList = (value: unknown): value is DetectionItem[] => Array.isArray(value);
 
 export const DetectedObjectsPanel = () => {
   const { video } = useTwinStore();
@@ -27,49 +26,42 @@ export const DetectedObjectsPanel = () => {
     : keypoints.map((kp) => ({ id: kp.id, x: kp.x, y: kp.y }));
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-full max-h-[400px]">
-      <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-900/50">
-        <h3 className="font-semibold flex items-center gap-2 text-gray-800 dark:text-white">
-          <Target className="w-4 h-4 text-red-500" /> 
-          Detected Objects
-          <span className="ml-2 text-xs bg-gray-200 dark:bg-slate-700 px-2 py-0.5 rounded-full text-gray-600 dark:text-gray-300">
-            {detections.length}
-          </span>
+    <Card className="flex h-full max-h-[400px] flex-col overflow-hidden">
+      <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <h3 className="flex items-center gap-2 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+          <Target className="h-4 w-4 text-zinc-400" strokeWidth={1.75} />
+          Objetos detectados
         </h3>
+        <Badge tone="neutral">{detections.length}</Badge>
       </div>
-      
-      <div className="overflow-y-auto p-2 space-y-2 flex-1">
+
+      <div className="flex-1 space-y-1.5 overflow-y-auto p-3">
         {detections.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-gray-400 text-sm">
-            <Activity className="w-8 h-8 mb-2 opacity-20" />
-            <p>No objects detected</p>
+          <div className="flex h-full min-h-[96px] items-center justify-center text-xs text-zinc-400">
+            Sin objetos detectados
           </div>
         ) : (
           detections.map((det, idx: number) => (
-            <div 
+            <div
               key={det.id || idx}
-              className="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-3 border border-gray-100 dark:border-slate-600 flex justify-between items-center group hover:border-blue-500 transition-colors"
+              className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 text-xs dark:border-zinc-800"
             >
-              <div className="flex flex-col">
-                <span className="font-medium text-sm text-gray-700 dark:text-gray-200">
-                  {det.label || det.class || `Object ${det.id || idx + 1}`}
-                </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono flex items-center gap-1">
-                  <MapPin className="w-3 h-3" />
-                  X: {typeof det.x === 'number' ? det.x.toFixed(2) : 'N/A'}, 
-                  Y: {typeof det.y === 'number' ? det.y.toFixed(2) : 'N/A'}
-                </span>
+              <div>
+                <p className="font-medium text-zinc-900 dark:text-zinc-100">
+                  {det.label || det.class || `Objeto ${det.id || idx + 1}`}
+                </p>
+                <p className="mt-0.5 flex items-center gap-1 font-mono text-[11px] text-zinc-500">
+                  <MapPin className="h-3 w-3" />
+                  X: {typeof det.x === 'number' ? det.x.toFixed(2) : '—'} · Y:{' '}
+                  {typeof det.y === 'number' ? det.y.toFixed(2) : '—'}
+                </p>
               </div>
-              
-              {det.confidence && (
-                <div className="text-xs font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
-                  {(det.confidence * 100).toFixed(0)}%
-                </div>
-              )}
+
+              {det.confidence && <Badge tone="success">{(det.confidence * 100).toFixed(0)}%</Badge>}
             </div>
           ))
         )}
       </div>
-    </div>
+    </Card>
   );
 };

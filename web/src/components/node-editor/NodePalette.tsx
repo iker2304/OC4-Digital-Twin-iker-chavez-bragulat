@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { CATEGORY_META, type NodeCategory, type NodeTemplate, NODE_TEMPLATES } from '../../store/nodeEditorStore';
+import { Glyph } from '../ui/Glyph';
 
 interface NodePaletteProps {
   onAddNode: (template: NodeTemplate) => void;
@@ -23,21 +24,24 @@ export default function NodePalette({ onAddNode }: NodePaletteProps) {
   }, {} as Record<NodeCategory, NodeTemplate[]>);
 
   return (
-    <div className="w-64 bg-white dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full overflow-hidden shrink-0">
+    <div className="w-60 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 flex flex-col h-full overflow-hidden shrink-0">
       {/* Header */}
-      <div className="p-3 border-b border-gray-100 dark:border-slate-700">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Node Palette</p>
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search nodes..."
-          className="w-full px-3 py-2 text-xs bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-600 rounded-xl text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
-        />
+      <div className="p-3 border-b border-gray-200 dark:border-slate-800">
+        <p className="ui-eyebrow mb-2">Nodos disponibles</p>
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar nodos..."
+            className="ui-input pl-8 py-1.5 text-xs"
+          />
+        </div>
       </div>
 
       {/* Categories */}
-      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
         {categories.map(cat => {
           const meta = CATEGORY_META[cat];
           const templates = grouped[cat];
@@ -48,20 +52,19 @@ export default function NodePalette({ onAddNode }: NodePaletteProps) {
             <div key={cat}>
               <button
                 onClick={() => setExpanded(isExpanded && !search ? null : cat)}
-                className="w-full flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-all text-xs font-bold"
-                style={{ color: meta.color }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors text-xs font-medium text-gray-700 dark:text-gray-200"
               >
-                <span className="text-sm">{meta.icon}</span>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: meta.color }} />
                 <span>{meta.label}</span>
-                <span className="ml-auto text-[10px] text-gray-400 font-normal">{templates.length}</span>
+                <span className="ml-auto text-[11px] font-mono text-gray-400">{templates.length}</span>
                 {isExpanded
-                  ? <ChevronDown className="w-3 h-3 text-gray-400" />
-                  : <ChevronRight className="w-3 h-3 text-gray-400" />
+                  ? <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                  : <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
                 }
               </button>
 
               {isExpanded && (
-                <div className="space-y-0.5 mt-0.5 mb-1 ml-0.5">
+                <div className="space-y-0.5 mt-0.5 mb-1.5 pl-2">
                   {templates.map(template => (
                     <button
                       key={template.type}
@@ -71,22 +74,19 @@ export default function NodePalette({ onAddNode }: NodePaletteProps) {
                         e.dataTransfer.setData('application/nodetemplate', template.type);
                         e.dataTransfer.effectAllowed = 'copy';
                       }}
-                      className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl cursor-pointer transition-all group hover:bg-gray-50 dark:hover:bg-slate-700/50 border border-transparent hover:border-gray-200 dark:hover:border-slate-600 text-left"
+                      className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md cursor-pointer transition-colors group hover:bg-gray-50 dark:hover:bg-slate-800/70 border border-transparent hover:border-gray-200 dark:hover:border-slate-700 text-left"
                     >
                       <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0 transition-transform group-hover:scale-110"
-                        style={{
-                          backgroundColor: `${template.color}15`,
-                          border: `1px solid ${template.color}25`,
-                        }}
+                        className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300"
+                        style={{ borderLeft: `2px solid ${template.color}` }}
                       >
-                        {template.icon}
+                        <Glyph name={template.icon} className="w-3.5 h-3.5" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-semibold text-gray-700 dark:text-gray-300 truncate">
+                        <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
                           {template.label}
                         </p>
-                        <p className="text-[9px] text-gray-400 truncate leading-tight mt-0.5">
+                        <p className="text-[11px] text-gray-500 truncate leading-tight">
                           {template.description}
                         </p>
                       </div>
@@ -100,9 +100,9 @@ export default function NodePalette({ onAddNode }: NodePaletteProps) {
       </div>
 
       {/* Footer hint */}
-      <div className="p-3 border-t border-gray-100 dark:border-slate-700">
-        <p className="text-[9px] text-gray-400 text-center">
-          Click or drag to add nodes to canvas
+      <div className="p-2.5 border-t border-gray-200 dark:border-slate-800">
+        <p className="text-[11px] text-gray-400 text-center">
+          Clic o arrastrar al lienzo
         </p>
       </div>
     </div>

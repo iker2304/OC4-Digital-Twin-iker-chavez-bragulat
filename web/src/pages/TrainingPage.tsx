@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
-  Brain, Play, Square, RefreshCw, CheckCircle2, Sliders, Layers,
-  Terminal, Image as ImageIcon, Award, Cpu, Database, Plus, Trash2
+  Play, Square, RefreshCw, CheckCircle2, Sliders, Layers,
+  Terminal, Image as ImageIcon, Award, Cpu, Database, Plus, Trash2, Save,
 } from 'lucide-react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { useProfileStore } from '../store/profileStore';
 import { API_BASE_URL } from '../config/api';
+import { Badge, Button, Card, CardHeader, PageHeader, Stat } from '../components/ui';
+import { Glyph } from '../components/ui/Glyph';
 
 interface TrainingMetricsRow {
   epoch: number;
@@ -59,7 +61,6 @@ export const TrainingPage = () => {
   const [selectedArtifact, setSelectedArtifact] = useState<string | null>(null);
   const [assignedSuccess, setAssignedSuccess] = useState<string | null>(null);
 
-  // Configurable train.yaml state
   const [config, setConfig] = useState<any>({
     paths: {
       dataset_dir: 'data/datasets/Floating platform.v1i.yolov11',
@@ -240,60 +241,41 @@ export const TrainingPage = () => {
   const progressPct = totalEpochs > 0 ? Math.min(100, Math.round((currentEpoch / totalEpochs) * 100)) : 0;
 
   return (
-    <div className="h-full overflow-y-auto pr-2 space-y-6 pb-8">
-      {/* Header Banner */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-6 shadow-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400">
-              <Brain className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-                Centro de Entrenamiento IA (YOLO Pose & Detección)
-              </h1>
-              <p className="text-sm text-slate-400">
-                Configura hiperparámetros, entrena redes de estimación de pose 6-DOF y vincúlalas a cualquier Gemelo Digital.
-              </p>
-            </div>
+    <div className="space-y-6 pb-8">
+      <PageHeader
+        eyebrow="Visión Artificial"
+        title="Entrenamiento de Modelos IA (YOLO Pose y Detección)"
+        description="Configura hiperparámetros, entrena redes de estimación de pose 6-DOF y vincúlalas a cualquier gemelo digital."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={mode}
+              onChange={e => setMode(e.target.value)}
+              disabled={status === 'running'}
+              className="ui-input text-xs py-1.5 w-auto"
+            >
+              <option value="auto">Modo Auto (Ultralytics / Simulación)</option>
+              <option value="simulated">Entrenamiento Rápido Interactivo</option>
+              <option value="real">Subproceso PyTorch / Ultralytics</option>
+            </select>
+
+            {status === 'running' ? (
+              <Button variant="danger" onClick={handleStopTraining}>
+                <Square className="w-3.5 h-3.5" />
+                Detener entrenamiento
+              </Button>
+            ) : (
+              <Button variant="primary" onClick={handleStartTraining}>
+                <Play className="w-3.5 h-3.5" />
+                Iniciar entrenamiento
+              </Button>
+            )}
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Training Mode Selector */}
-          <select
-            value={mode}
-            onChange={e => setMode(e.target.value)}
-            disabled={status === 'running'}
-            className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-purple-500"
-          >
-            <option value="auto">Modo Auto (Ultralytics / Simulación)</option>
-            <option value="simulated">Entrenamiento Rápido Interactivo</option>
-            <option value="real">Subproceso PyTorch / Ultralytics</option>
-          </select>
-
-          {status === 'running' ? (
-            <button
-              onClick={handleStopTraining}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold shadow-lg transition-all"
-            >
-              <Square className="w-4 h-4" />
-              Detener Entrenamiento
-            </button>
-          ) : (
-            <button
-              onClick={handleStartTraining}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white text-sm font-semibold shadow-lg transition-all"
-            >
-              <Play className="w-4 h-4" />
-              Iniciar Entrenamiento
-            </button>
-          )}
-        </div>
-      </div>
+        }
+      />
 
       {assignedSuccess && (
-        <div className="bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
+        <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 px-4 py-2.5 rounded-lg flex items-center gap-2 text-xs font-medium">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{assignedSuccess}</span>
         </div>
@@ -301,99 +283,108 @@ export const TrainingPage = () => {
 
       {/* Top KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-400 uppercase font-semibold mb-1">Estado / Época</div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-bold text-white">
-              {currentEpoch} <span className="text-sm text-slate-500 font-normal">/ {totalEpochs}</span>
-            </span>
-            <span
-              className={`text-xs px-2 py-0.5 rounded-full font-semibold uppercase ${
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="ui-eyebrow">Estado / Época</span>
+            <Badge
+              variant={
                 status === 'running'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse'
+                  ? 'warning'
                   : status === 'completed'
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                  : 'bg-slate-800 text-slate-400'
-              }`}
+                  ? 'success'
+                  : status === 'failed'
+                  ? 'danger'
+                  : 'neutral'
+              }
             >
               {status}
-            </span>
+            </Badge>
           </div>
-          <div className="w-full h-1.5 bg-slate-800 rounded-full mt-3 overflow-hidden">
+          <div className="text-xl font-semibold font-mono text-gray-900 dark:text-white">
+            {currentEpoch} <span className="text-xs text-gray-400 font-normal">/ {totalEpochs}</span>
+          </div>
+          <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full mt-3 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-300"
+              className="h-full bg-blue-600 transition-all duration-300"
               style={{ width: `${progressPct}%` }}
             />
           </div>
-        </div>
+        </Card>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-400 uppercase font-semibold mb-1">mAP@50 (Pose Keypoints)</div>
-          <div className="text-2xl font-bold text-emerald-400">
-            {latestMetrics?.map50_pose !== undefined
+        <Stat
+          label="mAP@50 (Pose Keypoints)"
+          value={
+            latestMetrics?.map50_pose !== undefined
               ? `${(latestMetrics.map50_pose * 100).toFixed(2)}%`
-              : '—'}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            mAP@50-95: {latestMetrics?.map50_95_pose !== undefined ? `${(latestMetrics.map50_95_pose * 100).toFixed(1)}%` : '—'}
-          </div>
-        </div>
+              : '—'
+          }
+          sub={
+            latestMetrics?.map50_95_pose !== undefined
+              ? `mAP@50-95: ${(latestMetrics.map50_95_pose * 100).toFixed(1)}%`
+              : 'mAP@50-95: —'
+          }
+        />
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-400 uppercase font-semibold mb-1">mAP@50 (Bounding Box)</div>
-          <div className="text-2xl font-bold text-blue-400">
-            {latestMetrics?.map50_box !== undefined
+        <Stat
+          label="mAP@50 (Bounding Box)"
+          value={
+            latestMetrics?.map50_box !== undefined
               ? `${(latestMetrics.map50_box * 100).toFixed(2)}%`
-              : '—'}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            mAP@50-95: {latestMetrics?.map50_95_box !== undefined ? `${(latestMetrics.map50_95_box * 100).toFixed(1)}%` : '—'}
-          </div>
-        </div>
+              : '—'
+          }
+          sub={
+            latestMetrics?.map50_95_box !== undefined
+              ? `mAP@50-95: ${(latestMetrics.map50_95_box * 100).toFixed(1)}%`
+              : 'mAP@50-95: —'
+          }
+        />
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-400 uppercase font-semibold mb-1">Pose Loss (Train / Val)</div>
-          <div className="text-2xl font-bold text-purple-400">
-            {latestMetrics?.train_pose_loss !== undefined ? latestMetrics.train_pose_loss.toFixed(3) : '—'}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            Val Pose Loss: {latestMetrics?.val_pose_loss !== undefined ? latestMetrics.val_pose_loss.toFixed(3) : '—'}
-          </div>
-        </div>
+        <Stat
+          label="Pose Loss (Train / Val)"
+          value={latestMetrics?.train_pose_loss !== undefined ? latestMetrics.train_pose_loss.toFixed(3) : '—'}
+          sub={`Val Pose Loss: ${latestMetrics?.val_pose_loss !== undefined ? latestMetrics.val_pose_loss.toFixed(3) : '—'}`}
+        />
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-400 uppercase font-semibold mb-1">Gemelo Activo Vinculado</div>
-          <div className="text-sm font-bold text-white truncate">
-            {activeProfile ? `${activeProfile.icon} ${activeProfile.name}` : 'Ninguno'}
+        <Card className="p-4">
+          <div className="ui-eyebrow mb-1.5">Gemelo activo vinculado</div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white truncate">
+            {activeProfile ? (
+              <>
+                <Glyph name={activeProfile.icon} className="w-4 h-4 text-gray-500 shrink-0" />
+                <span className="truncate">{activeProfile.name}</span>
+              </>
+            ) : (
+              'Ninguno'
+            )}
           </div>
-          <div className="text-[11px] text-slate-400 font-mono truncate mt-1" title={activeProfile?.config.aiConfig?.yoloModelPath}>
+          <div
+            className="text-[11px] text-gray-500 font-mono truncate mt-1"
+            title={activeProfile?.config.aiConfig?.yoloModelPath}
+          >
             {activeProfile?.config.aiConfig?.yoloModelPath || 'best.pt'}
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Main Grid: Left Configurator (5 cols) | Right Live Charts & Runs (7 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Training Configuration Form */}
-        <div className="lg:col-span-5 bg-slate-900/90 border border-slate-800 rounded-xl p-5 space-y-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-purple-400" />
-              Configuración de Entrenamiento (train.yaml)
-            </h2>
-            <button
-              onClick={handleSaveConfig}
-              className="text-xs px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-blue-400 border border-slate-700 transition-colors"
-            >
-              Guardar YAML
-            </button>
-          </div>
+        <Card className="lg:col-span-5 p-5 space-y-4">
+          <CardHeader
+            title="Configuración (train.yaml)"
+            icon={<Sliders className="w-4 h-4" />}
+            action={
+              <Button variant="secondary" size="sm" onClick={handleSaveConfig}>
+                <Save className="w-3.5 h-3.5" /> Guardar YAML
+              </Button>
+            }
+          />
 
           <div className="space-y-4 text-xs">
             {/* Run Name & Dataset */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">Nombre del Experimento (Run)</label>
+                <label className="ui-label">Nombre del experimento (Run)</label>
                 <input
                   type="text"
                   value={config.training?.run_name || ''}
@@ -403,14 +394,14 @@ export const TrainingPage = () => {
                       training: { ...config.training, run_name: e.target.value },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                  className="ui-input text-xs"
                   placeholder="yolo11-pose-v2"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-medium flex items-center gap-1">
-                  <Database className="w-3.5 h-3.5 text-blue-400" /> Dataset de Entrenamiento
+                <label className="ui-label flex items-center gap-1">
+                  <Database className="w-3 h-3 text-gray-400" /> Dataset de entrenamiento
                 </label>
                 <select
                   value={config.paths?.dataset_dir || ''}
@@ -420,7 +411,7 @@ export const TrainingPage = () => {
                       paths: { ...config.paths, dataset_dir: e.target.value },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                  className="ui-input text-xs"
                 >
                   {datasets.map(ds => (
                     <option key={ds.name} value={`data/datasets/${ds.name}`}>
@@ -439,7 +430,7 @@ export const TrainingPage = () => {
             {/* Base Pretrained Model & Keypoint Shape */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">Modelo Base Pre-entrenado (.pt)</label>
+                <label className="ui-label">Modelo base preentrenado (.pt)</label>
                 <select
                   value={config.paths?.base_model || ''}
                   onChange={e =>
@@ -448,7 +439,7 @@ export const TrainingPage = () => {
                       paths: { ...config.paths, base_model: e.target.value },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                  className="ui-input text-xs"
                 >
                   {models.baseModels.map((m: any) => (
                     <option key={m.path} value={m.path}>
@@ -462,7 +453,7 @@ export const TrainingPage = () => {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Nº Keypoints</label>
+                  <label className="ui-label">Nº Keypoints</label>
                   <input
                     type="number"
                     min={1}
@@ -477,11 +468,11 @@ export const TrainingPage = () => {
                         },
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                    className="ui-input text-xs font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Dim (2D/3D vis)</label>
+                  <label className="ui-label">Dimensión</label>
                   <select
                     value={config.dataset?.kpt_shape?.[1] ?? 3}
                     onChange={e =>
@@ -493,10 +484,10 @@ export const TrainingPage = () => {
                         },
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                    className="ui-input text-xs"
                   >
                     <option value={2}>2 (x, y)</option>
-                    <option value={3}>3 (x, y, visible)</option>
+                    <option value={3}>3 (x, y, vis)</option>
                   </select>
                 </div>
               </div>
@@ -505,7 +496,7 @@ export const TrainingPage = () => {
             {/* Hyperparameters Grid */}
             <div className="grid grid-cols-3 gap-3 pt-1">
               <div>
-                <label className="block text-slate-400 mb-1">Épocas (Epochs)</label>
+                <label className="ui-label">Épocas</label>
                 <input
                   type="number"
                   min={1}
@@ -517,11 +508,11 @@ export const TrainingPage = () => {
                       training: { ...config.training, epochs: Number(e.target.value) },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">Batch Size</label>
+                <label className="ui-label">Batch Size</label>
                 <input
                   type="number"
                   min={1}
@@ -533,11 +524,11 @@ export const TrainingPage = () => {
                       training: { ...config.training, batch: Number(e.target.value) },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">Resolución (imgsz)</label>
+                <label className="ui-label">Resolución (imgsz)</label>
                 <input
                   type="number"
                   step={32}
@@ -548,11 +539,11 @@ export const TrainingPage = () => {
                       training: { ...config.training, imgsz: Number(e.target.value) },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">Learning Rate (lr0)</label>
+                <label className="ui-label">Learning Rate</label>
                 <input
                   type="number"
                   step={0.0001}
@@ -563,11 +554,11 @@ export const TrainingPage = () => {
                       training: { ...config.training, lr0: Number(e.target.value) },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">Pose Gain</label>
+                <label className="ui-label">Pose Gain</label>
                 <input
                   type="number"
                   step={0.5}
@@ -578,11 +569,11 @@ export const TrainingPage = () => {
                       training: { ...config.training, pose: Number(e.target.value) },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">Patience (EarlyStop)</label>
+                <label className="ui-label">Patience</label>
                 <input
                   type="number"
                   value={config.training?.patience ?? 20}
@@ -592,26 +583,24 @@ export const TrainingPage = () => {
                       training: { ...config.training, patience: Number(e.target.value) },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input text-xs font-mono"
                 />
               </div>
             </div>
 
             {/* Object Classes Editor */}
-            <div className="pt-2 border-t border-slate-800">
-              <label className="block text-slate-400 mb-2 font-medium">
-                Clases del Gemelo Digital (dataset.names)
-              </label>
-              <div className="flex flex-wrap gap-2 mb-2">
+            <div className="pt-3 border-t border-gray-200 dark:border-slate-800">
+              <label className="ui-label">Clases del gemelo digital (dataset.names)</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
                 {Object.entries(config.dataset?.names || {}).map(([idx, clsName]) => (
                   <span
                     key={idx}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-xs"
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 text-xs"
                   >
-                    <span className="text-purple-400 font-mono">{idx}:</span> {String(clsName)}
+                    <span className="text-gray-400 font-mono">{idx}:</span> {String(clsName)}
                     <button
                       onClick={() => removeClassName(idx)}
-                      className="text-slate-400 hover:text-red-400"
+                      className="text-gray-400 hover:text-red-500"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -624,22 +613,19 @@ export const TrainingPage = () => {
                   value={newClassName}
                   onChange={e => setNewClassName(e.target.value)}
                   placeholder="Añadir clase (ej. wind_turbine, robot_joint)..."
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input flex-1 text-xs"
                 />
-                <button
-                  onClick={addClassName}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1"
-                >
+                <Button variant="secondary" size="sm" onClick={addClassName}>
                   <Plus className="w-3.5 h-3.5" /> Añadir
-                </button>
+                </Button>
               </div>
             </div>
 
             {/* Hardware */}
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200 dark:border-slate-800">
               <div>
-                <label className="block text-slate-400 mb-1 flex items-center gap-1">
-                  <Cpu className="w-3.5 h-3.5 text-cyan-400" /> Dispositivo (GPU ID o cpu)
+                <label className="ui-label flex items-center gap-1">
+                  <Cpu className="w-3 h-3 text-gray-400" /> Dispositivo (GPU ID o cpu)
                 </label>
                 <input
                   type="text"
@@ -650,11 +636,11 @@ export const TrainingPage = () => {
                       hardware: { ...config.hardware, device: e.target.value },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">Workers Dataloader</label>
+                <label className="ui-label">Workers Dataloader</label>
                 <input
                   type="number"
                   min={0}
@@ -666,112 +652,102 @@ export const TrainingPage = () => {
                       hardware: { ...config.hardware, workers: Number(e.target.value) },
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                  className="ui-input text-xs font-mono"
                 />
               </div>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Right: Live Curves & Runs Selector */}
         <div className="lg:col-span-7 space-y-6">
           {/* Runs Selector & Model Assignment Bar */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <Layers className="w-4 h-4 text-blue-400" />
-              <span className="text-xs font-semibold text-slate-300 uppercase">Historial de Runs:</span>
+          <Card className="p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Layers className="w-4 h-4 text-gray-400" />
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Historial de runs:</span>
               <select
                 value={selectedRun}
                 onChange={e => handleSelectRun(e.target.value)}
-                className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
+                className="ui-input text-xs py-1.5 w-auto"
               >
                 {runs.map(r => (
                   <option key={r.name} value={r.name}>
-                    {r.name} {r.hasBestWeights ? '✓ (best.pt)' : ''}
+                    {r.name} {r.hasBestWeights ? '(best.pt)' : ''}
                   </option>
                 ))}
               </select>
-              <button
-                onClick={fetchAllData}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
-                title="Refrescar"
-              >
+              <Button variant="ghost" size="sm" onClick={fetchAllData} title="Refrescar">
                 <RefreshCw className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </div>
 
             {selectedRun && (
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() =>
                   handleAssignModelToActiveTwin(`data/models/CV/pose/${selectedRun}/weights/best.pt`)
                 }
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-medium transition-colors"
               >
                 <Award className="w-3.5 h-3.5" />
-                Asignar Modelo ({selectedRun}) al Gemelo Activo
-              </button>
+                Asignar ({selectedRun}) al gemelo activo
+              </Button>
             )}
-          </div>
+          </Card>
 
           {/* Charts Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Loss Chart */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">
-                Evolución de Pérdidas (Box & Pose Loss)
-              </h3>
+            <Card className="p-4">
+              <h3 className="ui-eyebrow mb-3">Evolución de pérdidas (Box & Pose Loss)</h3>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={history}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
                     <XAxis dataKey="epoch" stroke="#64748b" fontSize={11} />
                     <YAxis stroke="#64748b" fontSize={11} />
                     <Tooltip
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: 12 }}
+                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', color: '#f4f4f5', fontSize: 12 }}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line type="monotone" dataKey="train_pose_loss" name="Train Pose Loss" stroke="#a855f7" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="val_pose_loss" name="Val Pose Loss" stroke="#ec4899" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="train_box_loss" name="Train Box Loss" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
+                    <Line type="monotone" dataKey="train_pose_loss" name="Train Pose Loss" stroke="#3b82f6" strokeWidth={1.75} dot={false} />
+                    <Line type="monotone" dataKey="val_pose_loss" name="Val Pose Loss" stroke="#f59e0b" strokeWidth={1.75} dot={false} />
+                    <Line type="monotone" dataKey="train_box_loss" name="Train Box Loss" stroke="#64748b" strokeWidth={1.5} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+            </Card>
 
-            {/* mAP Precision Chart */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">
-                Precisión Media (mAP@50 & mAP@50-95)
-              </h3>
+            <Card className="p-4">
+              <h3 className="ui-eyebrow mb-3">Precisión media (mAP@50 & mAP@50-95)</h3>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={history}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
                     <XAxis dataKey="epoch" stroke="#64748b" fontSize={11} />
                     <YAxis domain={[0, 1]} stroke="#64748b" fontSize={11} />
                     <Tooltip
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: 12 }}
+                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', color: '#f4f4f5', fontSize: 12 }}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line type="monotone" dataKey="map50_pose" name="mAP@50 Pose" stroke="#10b981" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="map50_95_pose" name="mAP@50-95 Pose" stroke="#06b6d4" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="map50_pose" name="mAP@50 Pose" stroke="#10b981" strokeWidth={1.75} dot={false} />
+                    <Line type="monotone" dataKey="map50_95_pose" name="mAP@50-95 Pose" stroke="#3b82f6" strokeWidth={1.75} dot={false} />
                     <Line type="monotone" dataKey="map50_box" name="mAP@50 Box" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+            </Card>
           </div>
 
           {/* Artifacts & Console Logs */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Training Artifacts Viewer */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-purple-400" />
-                Artefactos y Curvas del Modelo ({artifacts.length})
+            <Card className="p-4">
+              <h3 className="ui-eyebrow mb-3 flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5" />
+                Artefactos del modelo ({artifacts.length})
               </h3>
               {artifacts.length === 0 ? (
-                <p className="text-xs text-slate-500 py-8 text-center">
+                <p className="text-xs text-gray-500 py-8 text-center">
                   No hay gráficas de validación en este run todavía.
                 </p>
               ) : (
@@ -781,10 +757,10 @@ export const TrainingPage = () => {
                       <button
                         key={art.name}
                         onClick={() => setSelectedArtifact(art.path)}
-                        className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
                           selectedArtifact === art.path
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                            ? 'bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100'
+                            : 'bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
                         }`}
                       >
                         {art.name}
@@ -792,7 +768,7 @@ export const TrainingPage = () => {
                     ))}
                   </div>
                   {selectedArtifact && (
-                    <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-950 p-1">
+                    <div className="rounded-md overflow-hidden border border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 p-1">
                       <img
                         src={`${API_BASE_URL}${selectedArtifact}`}
                         alt="Training artifact"
@@ -802,23 +778,22 @@ export const TrainingPage = () => {
                   )}
                 </div>
               )}
-            </div>
+            </Card>
 
-            {/* Live Training Console */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col">
-              <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-emerald-400" />
-                Consola de Entrenamiento en Vivo
+            <Card className="p-4 flex flex-col">
+              <h3 className="ui-eyebrow mb-3 flex items-center gap-1.5">
+                <Terminal className="w-3.5 h-3.5" />
+                Consola de entrenamiento en vivo
               </h3>
-              <div className="flex-1 h-48 bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-y-auto font-mono text-[11px] space-y-1">
+              <div className="flex-1 h-48 bg-gray-950 border border-gray-800 rounded-md p-3 overflow-y-auto font-mono text-[11px] space-y-1">
                 {logs.length === 0 ? (
-                  <div className="text-slate-600">
-                    Listo para iniciar entrenamiento. Pulsa "Iniciar Entrenamiento" para ejecutar épocas...
+                  <div className="text-gray-500">
+                    Listo para iniciar entrenamiento. Pulsa "Iniciar entrenamiento" para ejecutar épocas...
                   </div>
                 ) : (
                   logs.map((l, idx) => (
-                    <div key={idx} className="text-slate-300 leading-relaxed">
-                      <span className="text-slate-500 mr-2">
+                    <div key={idx} className="text-gray-300 leading-relaxed">
+                      <span className="text-gray-500 mr-2">
                         [{new Date(l.timestamp).toLocaleTimeString()}]
                       </span>
                       <span>{l.message}</span>
@@ -826,7 +801,7 @@ export const TrainingPage = () => {
                   ))
                 )}
               </div>
-            </div>
+            </Card>
           </div>
         </div>
       </div>

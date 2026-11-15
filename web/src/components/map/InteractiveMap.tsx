@@ -9,9 +9,9 @@ import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
 const DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconAnchor: [12, 41],
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconAnchor: [12, 41],
 });
 
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -40,7 +40,6 @@ function MapController({ center }: { center: [number, number] }) {
       isInteracting.current = true;
     },
     dragend: () => {
-      // Small delay to prevent immediate snap-back if updates are frequent
       setTimeout(() => {
         isInteracting.current = false;
       }, 1000);
@@ -56,26 +55,17 @@ function MapController({ center }: { center: [number, number] }) {
   });
 
   useEffect(() => {
-    // If user is interacting, do NOT update view automatically
     if (isInteracting.current) return;
 
-    // Calculate distance to determine if we should fly or pan
-    // Using simple Euclidean distance approx for speed (valid for small local areas)
     const dist = Math.sqrt(
-      Math.pow(center[0] - previousCenter.current[0], 2) + 
-      Math.pow(center[1] - previousCenter.current[1], 2)
+      Math.pow(center[0] - previousCenter.current[0], 2) +
+        Math.pow(center[1] - previousCenter.current[1], 2)
     );
 
-    // Threshold for "Jump" vs "Track" (approx 0.001 degrees is ~100m)
-    // If distance is large (>0.0005), use flyTo (animation)
-    // If distance is small (tracking), use panTo (smoother) or setView
-    // If distance is 0, do nothing
-    
     if (dist > 0.0005) {
-        map.flyTo(center, map.getZoom());
+      map.flyTo(center, map.getZoom());
     } else if (dist > 0) {
-        // For small tracking updates, panTo is better
-        map.panTo(center, { animate: true, duration: 0.5 });
+      map.panTo(center, { animate: true, duration: 0.5 });
     }
 
     previousCenter.current = center;
@@ -84,13 +74,17 @@ function MapController({ center }: { center: [number, number] }) {
   return null;
 }
 
-export default function InteractiveMap({ pois = [], center = [41.3851, 2.1734], zoom = 13, children }: MapProps) {
+export default function InteractiveMap({
+  pois = [],
+  center = [41.3851, 2.1734],
+  zoom = 13,
+  children,
+}: MapProps) {
   const [mapCenter, setMapCenter] = useState<[number, number]>(center);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
 
-  // Sync internal map center state with prop updates (e.g. for tracking)
   useEffect(() => {
     setMapCenter(center);
   }, [center]);
@@ -118,47 +112,50 @@ export default function InteractiveMap({ pois = [], center = [41.3851, 2.1734], 
 
   const LocationButton = () => {
     const map = useMap();
-    
+
     const locateUser = () => {
-      map.locate().on("locationfound", function (e) {
+      map.locate().on('locationfound', function (e) {
         setUserLocation([e.latlng.lat, e.latlng.lng]);
         map.flyTo(e.latlng, 16);
       });
     };
 
     return (
-      <div className="leaflet-bottom leaflet-right" style={{ marginBottom: '80px', marginRight: '10px', pointerEvents: 'auto' }}>
+      <div
+        className="leaflet-bottom leaflet-right"
+        style={{ marginBottom: '80px', marginRight: '10px', pointerEvents: 'auto' }}
+      >
         <button
           onClick={(e) => {
-             e.stopPropagation();
-             locateUser();
+            e.stopPropagation();
+            locateUser();
           }}
-          className="bg-white p-2 rounded-lg shadow-md hover:bg-gray-50 border border-gray-300 flex items-center justify-center w-10 h-10"
+          className="bg-white dark:bg-slate-900 p-2 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center w-9 h-9"
           title="Locate Me"
         >
-          <Locate className="w-5 h-5 text-blue-600" />
+          <Locate className="w-4 h-4 text-blue-600 dark:text-blue-400" />
         </button>
       </div>
     );
   };
 
   return (
-    <div className="relative w-full h-full rounded-xl overflow-hidden shadow-lg border border-gray-200 dark:border-slate-700">
+    <div className="relative w-full h-full overflow-hidden">
       {/* Search Bar Overlay */}
-      <div className="absolute top-4 left-4 z-[1000] w-full max-w-sm">
+      <div className="absolute top-4 left-4 z-[1000] w-full max-w-xs">
         <form onSubmit={handleSearch} className="relative">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search location..."
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 shadow-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+            className="w-full pl-9 pr-14 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm dark:text-white outline-none"
           />
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-2 w-3.5 h-3.5 text-gray-400" />
           <button
             type="submit"
             disabled={isSearching}
-            className="absolute right-2 top-1.5 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            className="absolute right-1.5 top-1 px-2 py-1 text-[11px] font-medium bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-50"
           >
             {isSearching ? '...' : 'Go'}
           </button>
@@ -174,12 +171,12 @@ export default function InteractiveMap({ pois = [], center = [41.3851, 2.1734], 
       >
         <TileLayer
           maxZoom={19}
-          attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+          attribution="Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
           url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
         />
-        
+
         <MapController center={mapCenter} />
-        
+
         {/* User Location Marker */}
         {userLocation && (
           <Marker position={userLocation}>
@@ -192,13 +189,13 @@ export default function InteractiveMap({ pois = [], center = [41.3851, 2.1734], 
           <Marker key={poi.id} position={poi.position}>
             <Popup>
               <div className="p-1">
-                <h3 className="font-bold text-sm">{poi.title}</h3>
+                <h3 className="font-semibold text-sm">{poi.title}</h3>
                 <p className="text-xs text-gray-600">{poi.description}</p>
               </div>
             </Popup>
           </Marker>
         ))}
-        
+
         {children}
 
         <LocationButton />

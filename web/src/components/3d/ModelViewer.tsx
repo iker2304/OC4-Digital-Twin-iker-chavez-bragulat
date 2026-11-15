@@ -6,6 +6,7 @@ import { useProfileStore } from '../../store/profileStore';
 import * as THREE from 'three';
 import { Box, Eye, LayoutGrid, Monitor, Video, Upload, Layers } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
+import { Glyph } from '../ui/Glyph';
 
 // Camera View Types
 type CameraView = 'live' | 'top' | 'side' | 'front' | 'iso';
@@ -646,41 +647,41 @@ export const ModelViewer = ({ editMode = false }: { editMode?: boolean }) => {
   };
 
   return (
-    <div className="w-full h-full min-h-0 bg-slate-950 rounded-lg overflow-hidden border border-slate-800 relative group shadow-2xl">
+    <div className="relative h-full min-h-0 w-full overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 group">
       {/* Top-Left Active Twin & 3D Asset Selector */}
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
         <div className="relative">
           <button
             onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
-            className="bg-slate-900/80 hover:bg-slate-800/90 text-slate-200 px-3 py-1.5 rounded-lg backdrop-blur-md border border-slate-700/80 transition-all flex items-center gap-2 shadow-lg text-xs font-medium"
+            className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800"
           >
-            <Layers className="w-3.5 h-3.5 text-blue-400" />
-            <span>{activeProfile ? `${activeProfile.icon} ${activeProfile.name}` : 'Modelo 3D'}</span>
-            <span className="text-slate-500 font-mono text-[10px] truncate max-w-[120px]">
-              ({modelUrl.replace('/models/', '')})
+            {activeProfile ? <Glyph name={activeProfile.icon} size={14} className="text-zinc-400" /> : <Layers className="h-3.5 w-3.5 text-zinc-400" />}
+            <span>{activeProfile ? activeProfile.name : 'Modelo 3D'}</span>
+            <span className="max-w-[120px] truncate font-mono text-[10px] text-zinc-500">
+              {modelUrl.replace('/models/', '')}
             </span>
           </button>
 
           {isModelMenuOpen && (
-            <div className="absolute left-0 mt-1 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-lg shadow-2xl p-1.5 flex flex-col gap-1 min-w-[230px] z-50">
-              <div className="px-2.5 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                Seleccionar Geometría 3D
+            <div className="absolute left-0 z-50 mt-1 flex min-w-[230px] flex-col gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-lg">
+              <div className="px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                Geometría 3D
               </div>
               {availableModels.map(m => (
                 <button
                   key={m.url}
                   onClick={() => handleSelectModel(m.url)}
-                  className={`flex items-center justify-between px-2.5 py-1.5 rounded text-xs text-left transition-colors ${
+                  className={`flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
                     modelUrl === m.url
-                      ? 'bg-blue-600 text-white'
-                      : 'text-slate-300 hover:bg-slate-800'
+                      ? 'bg-zinc-800 text-white font-medium'
+                      : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
                   }`}
                 >
                   <span className="truncate">{m.name}</span>
                 </button>
               ))}
-              <label className="mt-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded text-xs bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 cursor-pointer transition-colors">
-                <Upload className="w-3.5 h-3.5" />
+              <label className="mt-1 flex cursor-pointer items-center justify-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-800">
+                <Upload className="h-3.5 w-3.5" />
                 <span>Subir archivo .GLB</span>
                 <input type="file" accept=".glb,.gltf" className="hidden" onChange={handleUpload3DModel} />
               </label>
@@ -690,20 +691,20 @@ export const ModelViewer = ({ editMode = false }: { editMode?: boolean }) => {
       </div>
 
       {/* View Control Button */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2">
+      <div className="absolute right-3 top-3 z-10 flex flex-col items-end gap-2">
         <button
           onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className="bg-black/30 hover:bg-black/50 text-white p-2 rounded-lg backdrop-blur-md border border-white/10 transition-all flex items-center gap-2 shadow-lg"
-          title="Change View"
+          className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/90 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800"
+          title="Cambiar vista"
         >
-          <LayoutGrid className="w-5 h-5" />
-          <span className="text-sm font-medium hidden group-hover:block">View</span>
+          <LayoutGrid className="h-3.5 w-3.5 text-zinc-400" />
+          <span>Vista</span>
         </button>
 
         {/* Dropdown Menu */}
         {isMenuOpen && (
-          <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-lg shadow-xl p-1 flex flex-col gap-1 min-w-[140px] animate-in fade-in slide-in-from-top-2 z-50">
-            <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Camera</div>
+          <div className="z-50 flex min-w-[140px] flex-col gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-lg">
+            <div className="px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Cámara</div>
             {(Object.keys(VIEW_CONFIGS) as CameraView[]).map((view) => {
               const config = VIEW_CONFIGS[view];
               const Icon = config.icon;
@@ -714,13 +715,13 @@ export const ModelViewer = ({ editMode = false }: { editMode?: boolean }) => {
                     setCurrentView(view);
                     setIsMenuOpen(false);
                   }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors ${
+                  className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors ${
                     currentView === view
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-300 hover:bg-white/10'
+                      ? 'bg-zinc-800 text-white font-medium'
+                      : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="h-3.5 w-3.5" />
                   {config.label}
                 </button>
               );
@@ -730,25 +731,24 @@ export const ModelViewer = ({ editMode = false }: { editMode?: boolean }) => {
       </div>
 
       {/* Floating Display Settings */}
-      <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 p-3 rounded-lg shadow-xl">
-        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Visualization</div>
-        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
+      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-300">
+        <label className="flex cursor-pointer items-center gap-1.5 hover:text-white">
           <input
             type="checkbox"
             checked={showGrid}
             onChange={(e) => setShowGrid(e.target.checked)}
-            className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900 w-4 h-4 cursor-pointer"
+            className="h-3.5 w-3.5 cursor-pointer rounded border-zinc-700 bg-zinc-800 text-blue-600 focus:ring-0"
           />
-          Show Grid
+          Rejilla
         </label>
-        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
+        <label className="flex cursor-pointer items-center gap-1.5 hover:text-white">
           <input
             type="checkbox"
             checked={showAxes}
             onChange={(e) => setShowAxes(e.target.checked)}
-            className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900 w-4 h-4 cursor-pointer"
+            className="h-3.5 w-3.5 cursor-pointer rounded border-zinc-700 bg-zinc-800 text-blue-600 focus:ring-0"
           />
-          Show Axes
+          Ejes
         </label>
       </div>
 

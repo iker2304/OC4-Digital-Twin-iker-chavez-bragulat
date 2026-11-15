@@ -1,120 +1,131 @@
 import { useState } from 'react';
 import { useTwinStore } from '../../store/twinStore';
 import type { TwinConfigUpdate } from '../../types';
+import { SlidersHorizontal } from 'lucide-react';
+import { Button, Card } from '../ui';
 
 export const DetectionSettings = () => {
-    const updateConfig = useTwinStore((state) => state.updateConfig);
+  const updateConfig = useTwinStore((state) => state.updateConfig);
 
-    // Local state to manage detection settings
-    const [conf, setConf] = useState(0.25);
-    const [iou, setIou] = useState(0.45);
-    const [showBoxes, setShowBoxes] = useState(true);
-    const [showKpts, setShowKpts] = useState(true);
-    const [recording, setRecording] = useState(false);
-    const [recordingSpeed, setRecordingSpeed] = useState(1);
+  const [conf, setConf] = useState(0.25);
+  const [iou, setIou] = useState(0.45);
+  const [showBoxes, setShowBoxes] = useState(true);
+  const [showKpts, setShowKpts] = useState(true);
+  const [recording, setRecording] = useState(false);
+  const [recordingSpeed, setRecordingSpeed] = useState(1);
 
-    // Function called when we change any setting
-    const handleUpdate = (newSettings: TwinConfigUpdate) => {
-        updateConfig(newSettings);
-    };
+  const handleUpdate = (newSettings: TwinConfigUpdate) => {
+    updateConfig(newSettings);
+  };
 
-    return (
-        <div className="bg-white p-4 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
-            <h3 className="text-lg font-bold mb-4">Detection Settings</h3>
-            
-            {/* Confidence Threshold (Slider) */}
-            <div className="mb-4">
-                <label className="block text-sm mb-1">Confidence Threshold: {conf}</label>
-                <input 
-                type="range" min="0.01" max="1" step="0.01" 
-                value={conf}
-                onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setConf(val);
-                    handleUpdate({ conf: val });
-                }}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-600"
-                />
+  return (
+    <Card className="flex h-full flex-col justify-between p-4">
+      <div>
+        <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+          <SlidersHorizontal className="h-4 w-4 text-zinc-400" strokeWidth={1.75} />
+          Parámetros de detección
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <div className="mb-1 flex justify-between text-xs text-zinc-500">
+              <span>Confianza</span>
+              <span className="font-mono text-zinc-700 dark:text-zinc-300">{conf.toFixed(2)}</span>
             </div>
+            <input
+              type="range"
+              min="0.01"
+              max="1"
+              step="0.01"
+              value={conf}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setConf(val);
+                handleUpdate({ conf: val });
+              }}
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-zinc-200 accent-zinc-900 dark:bg-zinc-800 dark:accent-zinc-100"
+            />
+          </div>
 
-            {/* IOU Threshold (Slider) */}
-            <div className="mb-4">
-                <label className="block text-sm mb-1">IoU Threshold: {iou}</label>
-                <input 
-                type="range" min="0.01" max="1" step="0.01" 
-                value={iou}
-                onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setIou(val);
-                    handleUpdate({ iou: val });
-                }}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-600"
-                />
+          <div>
+            <div className="mb-1 flex justify-between text-xs text-zinc-500">
+              <span>Umbral IoU</span>
+              <span className="font-mono text-zinc-700 dark:text-zinc-300">{iou.toFixed(2)}</span>
             </div>
+            <input
+              type="range"
+              min="0.01"
+              max="1"
+              step="0.01"
+              value={iou}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setIou(val);
+                handleUpdate({ iou: val });
+              }}
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-zinc-200 accent-zinc-900 dark:bg-zinc-800 dark:accent-zinc-100"
+            />
+          </div>
 
-            <div className="mb-4">
-                <label className="block text-sm mb-1">Recording Speed: {recordingSpeed}x</label>
-                <input
-                type="range" min="0.25" max="4" step="0.25"
-                value={recordingSpeed}
-                onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setRecordingSpeed(val);
-                    handleUpdate({ recording_speed: val });
-                }}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-600"
-                />
+          <div>
+            <div className="mb-1 flex justify-between text-xs text-zinc-500">
+              <span>Velocidad</span>
+              <span className="font-mono text-zinc-700 dark:text-zinc-300">{recordingSpeed}x</span>
             </div>
+            <input
+              type="range"
+              min="0.25"
+              max="4"
+              step="0.25"
+              value={recordingSpeed}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setRecordingSpeed(val);
+                handleUpdate({ recording_speed: val });
+              }}
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-zinc-200 accent-zinc-900 dark:bg-zinc-800 dark:accent-zinc-100"
+            />
+          </div>
+        </div>
+      </div>
 
-            {/* Visualization Buttons */}
-            <div className="flex gap-2 mt-4">
-                <button 
-                onClick={() => {
-                    const val = !showBoxes;
-                    setShowBoxes(val);
-                    handleUpdate({ show_boxes: val });
-                }}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                    showBoxes
-                        ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                        : 'bg-gray-200 hover:bg-gray-300 text-gray-900 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white'
-                }`}
-                >
-                {showBoxes ? 'Hide BBoxes' : 'Show BBoxes'}
-                </button>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant={showBoxes ? 'primary' : 'secondary'}
+          onClick={() => {
+            const val = !showBoxes;
+            setShowBoxes(val);
+            handleUpdate({ show_boxes: val });
+          }}
+        >
+          {showBoxes ? 'Ocultar cajas' : 'Mostrar cajas'}
+        </Button>
 
-                <button 
-                onClick={() => {
-                    const val = !showKpts;
-                    setShowKpts(val);
-                    handleUpdate({ show_kpts: val });
-                }}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                    showKpts
-                        ? 'bg-purple-600 hover:bg-purple-500 text-white'
-                        : 'bg-gray-200 hover:bg-gray-300 text-gray-900 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white'
-                }`}
-                >
-                {showKpts ? 'Hide Keypoints' : 'Show Keypoints'}
-                </button>
+        <Button
+          size="sm"
+          variant={showKpts ? 'primary' : 'secondary'}
+          onClick={() => {
+            const val = !showKpts;
+            setShowKpts(val);
+            handleUpdate({ show_kpts: val });
+          }}
+        >
+          {showKpts ? 'Ocultar keypoints' : 'Mostrar keypoints'}
+        </Button>
 
-                <button
-                onClick={() => {
-                    const val = !recording;
-                    setRecording(val);
-                    handleUpdate({ recording: val });
-                }}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                    recording
-                        ? 'bg-red-600 hover:bg-red-500 text-white'
-                        : 'bg-gray-200 hover:bg-gray-300 text-gray-900 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white'
-                }`}
-                >
-                {recording ? 'Stop Recording' : 'Start Recording'}
-                </button>
-            </div>
-            </div>
-        );       
-
-
+        <Button
+          size="sm"
+          variant={recording ? 'danger' : 'secondary'}
+          onClick={() => {
+            const val = !recording;
+            setRecording(val);
+            handleUpdate({ recording: val });
+          }}
+        >
+          {recording ? 'Detener grabación' : 'Grabar'}
+        </Button>
+      </div>
+    </Card>
+  );
 };

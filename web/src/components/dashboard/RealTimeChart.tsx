@@ -5,38 +5,40 @@ export const RealTimeChart = ({ metric }: { metric: 'roll' | 'pitch' | 'yaw' | '
   const history = useTwinStore((state) => state.history[metric]);
 
   const getLabel = (m: string) => {
-    if (['roll', 'pitch', 'yaw'].includes(m)) return `${m} (deg)`;
+    if (['roll', 'pitch', 'yaw'].includes(m)) return `${m} (°)`;
     return `${m} (m)`;
   };
 
   return (
-    <div className="w-full h-[250px] bg-white p-4 rounded-lg border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
-      <h3 className="text-sm font-medium text-gray-600 mb-2 capitalize dark:text-gray-400">{getLabel(metric)}</h3>
-      <div className="w-full h-[calc(100%-24px)]">
+    <div className="h-[180px] w-full rounded-lg border border-zinc-200 bg-zinc-50/50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-500">{getLabel(metric)}</h4>
+      <div className="h-[calc(100%-20px)] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={history}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-            <XAxis 
-              dataKey="timestamp" 
-              tick={false} 
+            <XAxis
+              dataKey="timestamp"
+              tick={false}
               stroke="var(--chart-axis)"
               domain={['dataMin', 'dataMax']}
             />
-            <YAxis stroke="var(--chart-axis)" domain={['auto', 'auto']} />
-            <Tooltip 
+            <YAxis stroke="var(--chart-axis)" tick={{ fontSize: 10 }} width={36} domain={['auto', 'auto']} />
+            <Tooltip
               contentStyle={{
                 backgroundColor: 'var(--chart-tooltip-bg)',
                 borderColor: 'var(--chart-tooltip-border)',
                 color: 'var(--chart-tooltip-fg)',
+                borderRadius: 8,
+                fontSize: 12,
               }}
               labelFormatter={(label) => new Date(label).toLocaleTimeString()}
             />
-            <Line 
-              type="monotone" 
-              dataKey="value" 
-              stroke="#3b82f6" 
-              strokeWidth={2} 
-              dot={false} 
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke="#2563eb"
+              strokeWidth={1.75}
+              dot={false}
               isAnimationActive={false}
             />
           </LineChart>

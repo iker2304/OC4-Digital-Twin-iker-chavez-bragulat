@@ -3,6 +3,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { API_BASE_URL, WS_BASE_URL } from '../config/api';
+import {
+  Layers, Zap, Waves, Radio, Wind, Play, Square, Eye,
+  ChevronDown, ChevronUp, Network, RotateCcw, Loader2,
+} from 'lucide-react';
+import { Glyph } from '../components/ui/Glyph';
+import { StatusDot } from '../components/ui';
 
 // ── Turbo colormap LUT ────────────────────────────────────────────────────────
 const TURBO_LUT = (() => {
@@ -72,9 +78,9 @@ interface SimParams { mode: 'wind' | 'wave'; windSpeed: number; waveHs: number; 
 
 interface MqttPreset { label: string; topic: string; icon: string; description: string; }
 const MQTT_PRESETS: MqttPreset[] = [
-  { label: 'Wind', topic: 'oc4/wind', icon: '💨', description: 'windSpeed, windDirection (m/s, °)' },
-  { label: 'Wave', topic: 'oc4/wave', icon: '🌊', description: 'waveHeight, wavePeriod (m, s)' },
-  { label: 'Loads', topic: 'oc4/loads', icon: '⚙️', description: 'Fx,Fy,Fz,Mx,My,Mz (N, Nm)' },
+  { label: 'Wind', topic: 'oc4/wind', icon: 'wind', description: 'windSpeed, windDirection (m/s, °)' },
+  { label: 'Wave', topic: 'oc4/wave', icon: 'waves', description: 'waveHeight, wavePeriod (m, s)' },
+  { label: 'Loads', topic: 'oc4/loads', icon: 'cog', description: 'Fx,Fy,Fz,Mx,My,Mz (N, Nm)' },
 ];
 
 interface State {
@@ -864,62 +870,87 @@ export default function FEMPage() {
 
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  const statusColor = { idle: '#556', connecting: '#f59e0b', connected: '#10b981', error: '#ef4444' }[mqttStatus];
+  const mqttDotStatus = mqttStatus === 'connected' ? 'online' : mqttStatus === 'connecting' ? 'warning' : mqttStatus === 'error' ? 'error' : 'offline';
+  const liveDotStatus = liveStatus === 'connected' ? 'online' : liveStatus === 'connecting' ? 'warning' : liveStatus === 'error' ? 'error' : 'offline';
 
   return (
-    <div style={{ display: 'flex', height: '100%', margin: '-1.5rem', overflow: 'hidden', background: '#0a0a14' }}>
+    <div className="flex h-[calc(100vh-3.5rem)] -m-4 sm:-m-6 overflow-hidden bg-slate-950">
       {/* ── Left panel ── */}
-      <div style={{
-        width: 290, minWidth: 290, background: '#10101e', borderRight: '1px solid #1e2035',
-        display: 'flex', flexDirection: 'column', overflowY: 'auto', color: '#e0e6f0', fontSize: 13,
-      }}>
-        <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #1e2035' }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#7eb8f7', letterSpacing: 0.5 }}>FEM Modal Analysis</h2>
-          <p style={{ margin: '3px 0 0', fontSize: 11, color: '#556' }}>OC4 Semi-submersible</p>
+      <aside className="w-80 shrink-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 flex flex-col overflow-y-auto text-xs text-gray-700 dark:text-gray-200">
+        <div className="px-4 py-3.5 border-b border-gray-200 dark:border-slate-800">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white tracking-tight">Análisis Modal FEM</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">Plataforma semisumergible OC4</p>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid #1e2035' }}>
+        <div className="grid grid-cols-4 border-b border-gray-200 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-900/60">
           {([
-            { id: 'modal', label: '⬡ Modal' },
-            { id: 'loads', label: '⚡ Loads' },
-            { id: 'sim',   label: '🌊 Sim' },
-            { id: 'live',  label: '📡 Live' },
-          ] as { id: PageTab; label: string }[]).map(({ id, label }) => (
-            <button key={id} onClick={() => switchTab(id)} style={{
-              flex: 1, padding: '8px 2px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
-              textTransform: 'uppercase', letterSpacing: 0.5,
-              background: tab === id ? '#1a1a30' : 'transparent',
-              color: tab === id ? '#7eb8f7' : '#556',
-              borderBottom: tab === id ? '2px solid #7eb8f7' : '2px solid transparent',
-            }}>{label}</button>
-          ))}
+            { id: 'modal', label: 'Modal', icon: Layers },
+            { id: 'loads', label: 'Cargas', icon: Zap },
+            { id: 'sim',   label: 'Sim',   icon: Waves },
+            { id: 'live',  label: 'En vivo', icon: Radio },
+          ] as { id: PageTab; label: string; icon: typeof Layers }[]).map(({ id, label, icon: Icon }) => {
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                onClick={() => switchTab(id)}
+                className={`flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-medium border-b-2 transition-colors ${
+                  active
+                    ? 'border-blue-600 text-gray-900 dark:text-white bg-white dark:bg-slate-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {loading ? (
-          <div style={{ padding: 20, color: '#7eb8f7', fontSize: 12 }}>{loadStatus}</div>
+          <div className="p-5 flex items-center gap-2 text-xs text-gray-500">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+            <span>{loadStatus}</span>
+          </div>
         ) : tab === 'modal' ? (
           /* ── Modal shapes tab ──────────────────────────────────────────── */
-          <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={labelStyle}>Mode 1</span>
-              <select value={uiState.mode1} onChange={e => setField('mode1', e.target.value)} style={selectStyle}>
+          <div className="p-4 flex flex-col gap-4">
+            <div>
+              <label className="ui-label">Modo principal (Modo 1)</label>
+              <select
+                value={uiState.mode1}
+                onChange={e => setField('mode1', e.target.value)}
+                className="ui-input text-xs"
+              >
                 {modes.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={labelStyle}>Mode 2 (interpolation)</span>
-              <select value={uiState.mode2} onChange={e => setField('mode2', e.target.value)} style={selectStyle}>
-                <option value="__none__">None</option>
+            </div>
+            <div>
+              <label className="ui-label">Modo secundario (interpolación)</label>
+              <select
+                value={uiState.mode2}
+                onChange={e => setField('mode2', e.target.value)}
+                className="ui-input text-xs"
+              >
+                <option value="__none__">Ninguno</option>
                 {modes.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={labelStyle}>Mix: {uiState.mixAlpha}%</span>
-              <input type="range" min={0} max={100} value={uiState.mixAlpha}
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="ui-label mb-0">Mezcla modal</span>
+                <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{uiState.mixAlpha}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={uiState.mixAlpha}
                 onChange={e => setField('mixAlpha', Number(e.target.value))}
-                style={{ accentColor: '#7eb8f7', width: '100%' }} />
-            </label>
+                className="w-full accent-blue-600"
+              />
+            </div>
             <Divider />
             <SharedControls uiState={uiState} setField={setField} cbMin={cbMin} cbMax={cbMax} />
             <Divider />
@@ -928,42 +959,83 @@ export default function FEMPage() {
 
         ) : tab === 'loads' ? (
           /* ── Load simulation tab ───────────────────────────────────────── */
-          <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ background: '#0e0e20', borderRadius: 8, border: '1px solid #1e2035', padding: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 14 }}>📡</span>
-                <span style={{ fontWeight: 700, color: '#cde', fontSize: 12 }}>MQTT Source</span>
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: statusColor, fontWeight: 600 }}>● {mqttStatus.toUpperCase()}</span>
+          <div className="p-4 flex flex-col gap-4">
+            <div className="rounded-lg border border-gray-200 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-800/40 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-semibold text-gray-900 dark:text-white">
+                  <Radio className="w-3.5 h-3.5 text-gray-500" />
+                  <span>Fuente MQTT</span>
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-gray-500 uppercase">
+                  <StatusDot status={mqttDotStatus} />
+                  {mqttStatus}
+                </span>
               </div>
-              <div style={{ display: 'flex', gap: 5, marginBottom: 8 }}>
-                {MQTT_PRESETS.map(p => (
-                  <button key={p.topic} onClick={() => !mqttConnected && setMqttTopic(p.topic)} title={p.description} style={{
-                    flex: 1, padding: '5px 4px', borderRadius: 6, border: '1px solid',
-                    fontSize: 10, fontWeight: 700, cursor: mqttConnected ? 'default' : 'pointer',
-                    borderColor: mqttTopic === p.topic ? '#7eb8f7' : '#1e2035',
-                    background: mqttTopic === p.topic ? '#0d2035' : '#181828',
-                    color: mqttTopic === p.topic ? '#7eb8f7' : '#556',
-                  }}>{p.icon} {p.label}</button>
-                ))}
+
+              <div className="grid grid-cols-3 gap-1.5">
+                {MQTT_PRESETS.map(p => {
+                  const selected = mqttTopic === p.topic;
+                  return (
+                    <button
+                      key={p.topic}
+                      onClick={() => !mqttConnected && setMqttTopic(p.topic)}
+                      title={p.description}
+                      disabled={mqttConnected}
+                      className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md border text-[11px] font-medium transition-colors ${
+                        selected
+                          ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800'
+                          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Glyph name={p.icon} className="w-3 h-3" />
+                      <span>{p.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <span style={{ ...labelStyle, display: 'block', marginBottom: 4 }}>Topic</span>
-                <input type="text" value={mqttTopic} disabled={mqttConnected} onChange={e => setMqttTopic(e.target.value)}
-                  placeholder="oc4/wind" style={{ ...selectStyle, opacity: mqttConnected ? 0.5 : 1 }} />
+
+              <div>
+                <label className="ui-label">Topic MQTT</label>
+                <input
+                  type="text"
+                  value={mqttTopic}
+                  disabled={mqttConnected}
+                  onChange={e => setMqttTopic(e.target.value)}
+                  placeholder="oc4/wind"
+                  className="ui-input text-xs font-mono disabled:opacity-50"
+                />
               </div>
-              <button onClick={mqttConnected ? disconnectMqtt : () => connectMqtt(mqttTopic)} disabled={mqttStatus === 'connecting'}
-                style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                  fontSize: 11, fontWeight: 700,
-                  background: mqttConnected ? '#2d1010' : '#0d2035',
-                  color: mqttConnected ? '#ef4444' : '#7eb8f7' }}>
-                {mqttConnected ? '⏹ Disconnect' : mqttStatus === 'connecting' ? 'Connecting…' : '▶ Connect'}
+
+              <button
+                onClick={mqttConnected ? disconnectMqtt : () => connectMqtt(mqttTopic)}
+                disabled={mqttStatus === 'connecting'}
+                className={`w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                  mqttConnected
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white'
+                }`}
+              >
+                {mqttConnected ? (
+                  <>
+                    <Square className="w-3 h-3" /> Desconectar
+                  </>
+                ) : mqttStatus === 'connecting' ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" /> Conectando...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3 h-3" /> Conectar
+                  </>
+                )}
               </button>
+
               {mqttConnected && (
-                <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
                   {(['Fx', 'Fy', 'Fz', 'Mx', 'My', 'Mz'] as (keyof LoadCase)[]).map(k => (
-                    <div key={k as string} style={{ background: '#181828', borderRadius: 4, padding: '4px 8px' }}>
-                      <span style={{ color: '#556', fontSize: 10 }}>{k as string}</span>
-                      <div style={{ color: '#7eb8f7', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>
+                    <div key={k as string} className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded px-2 py-1.5">
+                      <span className="text-[10px] text-gray-400 block">{k as string}</span>
+                      <div className="text-xs font-mono font-semibold text-gray-900 dark:text-gray-100">
                         {(typeof liveLoads[k] === 'number' ? (liveLoads[k] as number).toExponential(2) : '—')}
                       </div>
                     </div>
@@ -972,22 +1044,27 @@ export default function FEMPage() {
               )}
             </div>
 
-            <div style={{ opacity: mqttConnected ? 0.4 : 1, pointerEvents: mqttConnected ? 'none' : 'auto' }}>
-              <span style={labelStyle}>Manual load case (N / Nm)</span>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+            <div className={mqttConnected ? 'opacity-40 pointer-events-none' : ''}>
+              <span className="ui-eyebrow block mb-2">Vector de carga manual (N / Nm)</span>
+              <div className="grid grid-cols-2 gap-2">
                 {(['Fx', 'Fy', 'Fz', 'Mx', 'My', 'Mz'] as (keyof LoadCase)[]).map(k => (
-                  <label key={k as string} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ color: '#9ab', fontSize: 10 }}>{k as string}</span>
-                    <input type="number" step={100} value={manualLoads[k] as number}
+                  <label key={k as string} className="flex flex-col gap-1">
+                    <span className="text-[11px] font-mono text-gray-500">{k as string}</span>
+                    <input
+                      type="number"
+                      step={100}
+                      value={manualLoads[k] as number}
                       onChange={e => setLoad(k, Number(e.target.value))}
-                      style={{ ...selectStyle, fontSize: 12, padding: '4px 6px' }} />
+                      className="ui-input py-1 px-2 text-xs font-mono"
+                    />
                   </label>
                 ))}
               </div>
-              <button onClick={() => setManualLoads(ZERO_LOADS)}
-                style={{ marginTop: 8, width: '100%', padding: '5px', borderRadius: 6, border: '1px solid #1e2035',
-                  background: '#181828', color: '#9ab', fontSize: 11, cursor: 'pointer' }}>
-                Reset loads
+              <button
+                onClick={() => setManualLoads(ZERO_LOADS)}
+                className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                <RotateCcw className="w-3 h-3" /> Restablecer cargas
               </button>
             </div>
 
@@ -997,120 +1074,151 @@ export default function FEMPage() {
 
         ) : tab === 'sim' ? (
           /* ── Pre-calc Simulation tab ───────────────────────────────────── */
-          <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
-
+          <div className="p-4 flex flex-col gap-4">
             {/* Node editor WS */}
-            <div style={{ background: '#0e0e20', borderRadius: 8, border: '1px solid #1e2035', padding: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 13 }}>🏗️</span>
-                <span style={{ fontWeight: 700, color: '#cde', fontSize: 12 }}>Node Editor</span>
-                <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600,
-                  color: simWsConnected ? '#10b981' : '#556' }}>
-                  ● {simWsConnected ? 'LIVE' : 'MANUAL'}
+            <div className="rounded-lg border border-gray-200 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-800/40 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-semibold text-gray-900 dark:text-white">
+                  <Network className="w-3.5 h-3.5 text-gray-500" />
+                  <span>Node Editor</span>
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-gray-500">
+                  <StatusDot status={simWsConnected ? 'online' : 'offline'} />
+                  {simWsConnected ? 'LIVE' : 'MANUAL'}
                 </span>
               </div>
-              <p style={{ margin: '0 0 8px', fontSize: 10, color: '#556', lineHeight: 1.4 }}>
-                Add a <strong style={{ color: '#9ab' }}>FEM Sim Viewer</strong> node in the node editor to control this view live.
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                Añade un nodo <strong className="text-gray-700 dark:text-gray-300">FEM Sim Viewer</strong> en el editor de flujos para controlar esta vista en tiempo real.
               </p>
-              <button onClick={simWsConnected ? disconnectSimWs : connectSimWs} style={{
-                width: '100%', padding: '6px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                fontSize: 11, fontWeight: 700,
-                background: simWsConnected ? '#2d1010' : '#0d2035',
-                color: simWsConnected ? '#ef4444' : '#7eb8f7',
-              }}>
-                {simWsConnected ? '⏹ Disconnect' : '▶ Connect to node editor'}
+              <button
+                onClick={simWsConnected ? disconnectSimWs : connectSimWs}
+                className={`w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                  simWsConnected
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white'
+                }`}
+              >
+                {simWsConnected ? (
+                  <>
+                    <Square className="w-3 h-3" /> Desconectar
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3 h-3" /> Conectar al editor de nodos
+                  </>
+                )}
               </button>
             </div>
 
             {/* Mode selector */}
             <div>
-              <span style={labelStyle}>Load type</span>
-              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                {(['wind', 'wave'] as const).map(m => (
-                  <button key={m} onClick={() => {
-                    setSimParams(p => ({ ...p, mode: m }));
-                  }} style={{
-                    flex: 1, padding: '7px', borderRadius: 6, border: '1px solid',
-                    fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    borderColor: simParams.mode === m ? '#7eb8f7' : '#1e2035',
-                    background: simParams.mode === m ? '#0d2035' : '#181828',
-                    color: simParams.mode === m ? '#7eb8f7' : '#556',
-                  }}>
-                    {m === 'wind' ? '💨 Wind' : '🌊 Wave'}
-                  </button>
-                ))}
+              <span className="ui-label">Tipo de excitación</span>
+              <div className="grid grid-cols-2 gap-1.5 mt-1">
+                {(['wind', 'wave'] as const).map(m => {
+                  const active = simParams.mode === m;
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => setSimParams(p => ({ ...p, mode: m }))}
+                      className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md border text-xs font-medium transition-colors ${
+                        active
+                          ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800'
+                          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      {m === 'wind' ? <Wind className="w-3.5 h-3.5" /> : <Waves className="w-3.5 h-3.5" />}
+                      <span>{m === 'wind' ? 'Viento' : 'Oleaje'}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {/* Wind controls */}
             {simParams.mode === 'wind' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={labelStyle}>Wind speed</span>
-                    <span style={{ color: '#7eb8f7', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>
-                      {simParams.windSpeed.toFixed(1)} m/s
-                    </span>
-                  </div>
-                  <input type="range" min={0} max={15} step={0.1} value={simParams.windSpeed}
-                    onChange={e => setSimParams(p => ({ ...p, windSpeed: Number(e.target.value) }))}
-                    style={{ accentColor: '#7eb8f7', width: '100%' }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#445' }}>
-                    <span>0 m/s</span><span>ref: 3 · 5 · 8</span><span>15 m/s</span>
-                  </div>
-                </label>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="ui-label mb-0">Velocidad del viento</span>
+                  <span className="font-mono font-semibold text-gray-900 dark:text-white">
+                    {simParams.windSpeed.toFixed(1)} m/s
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={15}
+                  step={0.1}
+                  value={simParams.windSpeed}
+                  onChange={e => setSimParams(p => ({ ...p, windSpeed: Number(e.target.value) }))}
+                  className="w-full accent-blue-600"
+                />
+                <div className="flex justify-between text-[10px] font-mono text-gray-400">
+                  <span>0 m/s</span><span>ref: 3 · 5 · 8</span><span>15 m/s</span>
+                </div>
               </div>
             )}
 
             {/* Wave controls */}
             {simParams.mode === 'wave' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={labelStyle}>Sig. wave height Hs</span>
-                    <span style={{ color: '#7eb8f7', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="ui-label mb-0">Altura significativa Hs</span>
+                    <span className="font-mono font-semibold text-gray-900 dark:text-white">
                       {simParams.waveHs.toFixed(2)} m
                     </span>
                   </div>
-                  <input type="range" min={0.1} max={3.0} step={0.05} value={simParams.waveHs}
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={3.0}
+                    step={0.05}
+                    value={simParams.waveHs}
                     onChange={e => setSimParams(p => ({ ...p, waveHs: Number(e.target.value) }))}
-                    style={{ accentColor: '#38bdf8', width: '100%' }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#445' }}>
+                    className="w-full accent-blue-600"
+                  />
+                  <div className="flex justify-between text-[10px] font-mono text-gray-400">
                     <span>0.1 m</span><span>ref: 0.5 · 1.0 · 2.0</span><span>3.0 m</span>
                   </div>
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={labelStyle}>Peak period Tp</span>
-                    <span style={{ color: '#38bdf8', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="ui-label mb-0">Periodo de pico Tp</span>
+                    <span className="font-mono font-semibold text-gray-900 dark:text-white">
                       {simParams.waveTp.toFixed(1)} s
                     </span>
                   </div>
-                  <input type="range" min={5} max={20} step={0.5} value={simParams.waveTp}
+                  <input
+                    type="range"
+                    min={5}
+                    max={20}
+                    step={0.5}
+                    value={simParams.waveTp}
                     onChange={e => setSimParams(p => ({ ...p, waveTp: Number(e.target.value) }))}
-                    style={{ accentColor: '#38bdf8', width: '100%' }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#445' }}>
+                    className="w-full accent-blue-600"
+                  />
+                  <div className="flex justify-between text-[10px] font-mono text-gray-400">
                     <span>5 s</span><span>ref: 8 · 10 · 12</span><span>20 s</span>
                   </div>
-                </label>
-                <p style={{ margin: 0, fontSize: 10, color: '#445' }}>
-                  Nearest pre-calculated case selected by Hs.
+                </div>
+
+                <p className="text-[11px] text-gray-500">
+                  Se selecciona el caso precalculado más cercano según Hs.
                 </p>
               </div>
             )}
 
-            {/* Loading indicator */}
             {simCaseLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#f59e0b', fontSize: 11 }}>
-                <div style={{ width: 12, height: 12, border: '2px solid #f59e0b', borderTopColor: 'transparent',
-                  borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                Loading result file…
+              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Cargando resultados...</span>
               </div>
             )}
 
             {!casesLoaded && (
-              <div style={{ fontSize: 11, color: '#ef4444' }}>
-                cases_index.json not found in /simulation_results/
+              <div className="text-xs text-red-600 dark:text-red-400">
+                cases_index.json no encontrado en /simulation_results/
               </div>
             )}
 
@@ -1120,75 +1228,79 @@ export default function FEMPage() {
 
         ) : (
           /* ── Live modal tab ────────────────────────────────────────────── */
-          <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-            {/* Connection card */}
-            <div style={{ background: '#0e0e20', borderRadius: 8, border: '1px solid #1e2035', padding: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 13 }}>📡</span>
-                <span style={{ fontWeight: 700, color: '#cde', fontSize: 12 }}>Real-time FFT</span>
-                <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600,
-                  color: { idle:'#556', connecting:'#f59e0b', connected:'#10b981', error:'#ef4444' }[liveStatus] }}>
-                  ● {liveStatus.toUpperCase()}
+          <div className="p-4 flex flex-col gap-4">
+            <div className="rounded-lg border border-gray-200 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-800/40 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-semibold text-gray-900 dark:text-white">
+                  <Radio className="w-3.5 h-3.5 text-gray-500" />
+                  <span>FFT en tiempo real</span>
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-gray-500 uppercase">
+                  <StatusDot status={liveDotStatus} />
+                  {liveStatus}
                 </span>
               </div>
-              <p style={{ margin: '0 0 10px', fontSize: 10, color: '#556', lineHeight: 1.5 }}>
-                Suscribe a <code style={{ color: '#9ab' }}>oc4/pose</code>, calcula FFT y
-                proyecta las amplitudes modales sobre la malla en tiempo real.
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                Suscribe a <code className="font-mono text-gray-700 dark:text-gray-300">oc4/pose</code>, calcula FFT y proyecta amplitudes modales sobre la malla.
               </p>
               <button
                 onClick={liveStatus === 'connected' ? disconnectLiveModal : connectLiveModal}
                 disabled={liveStatus === 'connecting'}
-                style={{
-                  width: '100%', padding: '7px 10px', borderRadius: 6, border: 'none',
-                  cursor: liveStatus === 'connecting' ? 'default' : 'pointer',
-                  fontSize: 11, fontWeight: 700,
-                  background: liveStatus === 'connected' ? '#2d1010' : '#0d2035',
-                  color:      liveStatus === 'connected' ? '#ef4444' : '#7eb8f7',
-                  opacity: liveStatus === 'connecting' ? 0.6 : 1,
-                }}>
-                {liveStatus === 'connected'  ? '⏹ Stop Live'   :
-                 liveStatus === 'connecting' ? 'Connecting…'    : '▶ Start Live'}
+                className={`w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors disabled:opacity-50 ${
+                  liveStatus === 'connected'
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white'
+                }`}
+              >
+                {liveStatus === 'connected' ? (
+                  <>
+                    <Square className="w-3 h-3" /> Detener transmisión
+                  </>
+                ) : liveStatus === 'connecting' ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" /> Conectando...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3 h-3" /> Iniciar transmisión
+                  </>
+                )}
               </button>
             </div>
 
-            {/* Live telemetry */}
             {liveInfo && (
               <>
-                <div style={{ background: '#0e0e20', borderRadius: 8, border: '1px solid #1e2035', padding: 10 }}>
-                  <span style={{ ...labelStyle, display: 'block', marginBottom: 6 }}>Signal</span>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                <div className="rounded-lg border border-gray-200 dark:border-slate-800 p-3">
+                  <span className="ui-eyebrow block mb-2">Señal</span>
+                  <div className="grid grid-cols-2 gap-1.5">
                     {[
                       ['FPS',      `${liveInfo.fps.toFixed(1)} Hz`],
                       ['Nyquist',  `${liveInfo.nyquist_hz.toFixed(2)} Hz`],
                       ['Buffer',   `${liveInfo.n_samples} smp`],
-                      ['Modes',    `${liveInfo.matched_modes.length} det`],
+                      ['Modos',    `${liveInfo.matched_modes.length} det`],
                     ].map(([k, v]) => (
-                      <div key={k} style={{ background: '#181828', borderRadius: 4, padding: '4px 8px' }}>
-                        <div style={{ color: '#556', fontSize: 10 }}>{k}</div>
-                        <div style={{ color: '#7eb8f7', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>{v}</div>
+                      <div key={k} className="bg-gray-50 dark:bg-slate-800/60 rounded px-2 py-1.5">
+                        <div className="text-[10px] text-gray-400">{k}</div>
+                        <div className="text-xs font-mono font-semibold text-gray-900 dark:text-white">{v}</div>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 {liveInfo.matched_modes.length > 0 && (
-                  <div style={{ background: '#0e0e20', borderRadius: 8, border: '1px solid #1e2035', padding: 10 }}>
-                    <span style={{ ...labelStyle, display: 'block', marginBottom: 6 }}>Matched modes</span>
+                  <div className="rounded-lg border border-gray-200 dark:border-slate-800 p-3 space-y-2">
+                    <span className="ui-eyebrow block">Modos acoplados</span>
                     {liveInfo.matched_modes.slice(0, 8).map(m => (
-                      <div key={m.mode_id} style={{ marginBottom: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                          <span style={{ color: '#cde', fontSize: 11 }}>Mode {m.mode_id}</span>
-                          <span style={{ color: '#556', fontSize: 10, fontFamily: 'monospace' }}>
-                            {m.freq_hz.toFixed(3)} Hz
-                          </span>
+                      <div key={m.mode_id} className="space-y-1">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="font-medium text-gray-700 dark:text-gray-200">Modo {m.mode_id}</span>
+                          <span className="font-mono text-gray-500">{m.freq_hz.toFixed(3)} Hz</span>
                         </div>
-                        <div style={{ height: 4, borderRadius: 2, background: '#1e2035' }}>
-                          <div style={{
-                            height: '100%', borderRadius: 2,
-                            width: `${(m.normalized_amplitude * 100).toFixed(1)}%`,
-                            background: `hsl(${200 + m.normalized_amplitude * 60},80%,60%)`,
-                          }} />
+                        <div className="h-1.5 rounded-full bg-gray-100 dark:bg-slate-800 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-blue-600"
+                            style={{ width: `${(m.normalized_amplitude * 100).toFixed(1)}%` }}
+                          />
                         </div>
                       </div>
                     ))}
@@ -1196,8 +1308,8 @@ export default function FEMPage() {
                 )}
 
                 {liveInfo.matched_modes.length === 0 && (
-                  <div style={{ fontSize: 11, color: '#556', textAlign: 'center', padding: '8px 0' }}>
-                    Sin modos detectados — acumulando muestras…
+                  <div className="text-xs text-gray-400 text-center py-2">
+                    Sin modos detectados — acumulando muestras...
                   </div>
                 )}
               </>
@@ -1210,101 +1322,100 @@ export default function FEMPage() {
 
         {/* ── Scene objects visibility (persistent, all tabs) ── */}
         {!loading && (
-          <div style={{ borderTop: '1px solid #1e2035' }}>
-            <button onClick={() => setObjPanelOpen(p => !p)} style={{
-              width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-              padding: '10px 16px', background: 'none', border: 'none', cursor: 'pointer',
-              color: '#9ab', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8,
-            }}>
-              <span style={{ marginRight: 'auto' }}>👁 Scene Objects</span>
-              <span style={{ fontSize: 10, color: '#556' }}>{objPanelOpen ? '▲' : '▼'}</span>
+          <div className="border-t border-gray-200 dark:border-slate-800 mt-auto">
+            <button
+              onClick={() => setObjPanelOpen(p => !p)}
+              className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800/60 transition-colors"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Eye className="w-3.5 h-3.5 text-gray-400" />
+                <span>Objetos de escena</span>
+              </span>
+              {objPanelOpen ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />}
             </button>
             {objPanelOpen && (
-              <div style={{ padding: '0 16px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={meshVisible}
+              <div className="px-4 pb-4 space-y-2.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={meshVisible}
                     onChange={e => setMeshVisible(e.target.checked)}
-                    style={{ accentColor: '#f7c07e', width: 14, height: 14 }} />
-                  <span style={{ color: '#cdd', fontSize: 12 }}>FEM Mesh</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 10, color: '#556' }}>malla</span>
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-xs text-gray-700 dark:text-gray-200">Malla FEM</span>
+                  <span className="ml-auto text-[11px] font-mono text-gray-400">superficie</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={objVisible}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={objVisible}
                     onChange={e => setObjVisible(e.target.checked)}
-                    style={{ accentColor: '#7eb8f7', width: 14, height: 14 }} />
-                  <span style={{ color: '#cdd', fontSize: 12 }}>Modelo 3D</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 10, color: '#556' }}>
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-xs text-gray-700 dark:text-gray-200">Modelo 3D</span>
+                  <span className="ml-auto text-[11px] font-mono text-gray-400">
                     {sceneObjectsRef.current.length} obj
                   </span>
                 </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, opacity: objVisible ? 1 : 0.4 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={labelStyle}>Opacity</span>
-                    <span style={{ color: '#7eb8f7', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>
-                      {Math.round(objOpacity * 100)}%
-                    </span>
+                <div className={objVisible ? '' : 'opacity-40 pointer-events-none'}>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span className="text-gray-500">Opacidad</span>
+                    <span className="font-mono text-gray-700 dark:text-gray-300">{Math.round(objOpacity * 100)}%</span>
                   </div>
-                  <input type="range" min={0} max={1} step={0.01} value={objOpacity}
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={objOpacity}
                     disabled={!objVisible}
                     onChange={e => setObjOpacity(Number(e.target.value))}
-                    style={{ accentColor: '#7eb8f7', width: '100%' }} />
-                </label>
+                    className="w-full accent-blue-600"
+                  />
+                </div>
               </div>
             )}
           </div>
         )}
-      </div>
+      </aside>
 
       {/* ── Three.js canvas ── */}
-      <div ref={mountRef} style={{ flex: 1, position: 'relative' }}>
+      <div ref={mountRef} className="flex-1 relative">
         {loading && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', color: '#7eb8f7', gap: 12 }}>
-            <div style={{ width: 36, height: 36, border: '3px solid #7eb8f7', borderTopColor: 'transparent',
-              borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <span style={{ fontSize: 13 }}>{loadStatus}</span>
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 gap-3 bg-slate-950/80">
+            <Loader2 className="w-7 h-7 animate-spin text-blue-500" />
+            <span className="text-xs font-mono">{loadStatus}</span>
           </div>
         )}
 
         {/* Live indicators */}
         {(mqttConnected || (tab === 'sim' && simWsConnected) || liveStatus === 'connected') && (
-          <div style={{ position: 'absolute', top: 12, right: 12,
-            background: '#0e1e0e', border: '1px solid #10b98133', borderRadius: 20,
-            padding: '4px 12px', fontSize: 11, color: '#10b981', fontWeight: 700,
-            display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981',
-              display: 'inline-block', animation: 'pulse 1.2s ease-in-out infinite' }} />
-            {liveStatus === 'connected'
-              ? `📡 FFT Live${liveInfo ? `  ${liveInfo.fps.toFixed(0)} Hz` : ''}`
-              : mqttConnected ? `📡 ${mqttTopic}` : '🏗️ Node editor'}
+          <div className="absolute top-3 right-3 bg-slate-900/90 border border-slate-800 rounded-md px-3 py-1.5 text-xs text-emerald-400 font-medium flex items-center gap-2 backdrop-blur-xs">
+            <StatusDot status="online" pulse />
+            <span>
+              {liveStatus === 'connected'
+                ? `FFT Live${liveInfo ? ` · ${liveInfo.fps.toFixed(0)} Hz` : ''}`
+                : mqttConnected ? `MQTT · ${mqttTopic}` : 'Node Editor'}
+            </span>
           </div>
         )}
 
         {/* Live Nyquist + modes badge */}
         {tab === 'live' && liveStatus === 'connected' && liveInfo && (
-          <div style={{ position: 'absolute', bottom: 12, right: 12,
-            background: '#0a0a20', border: '1px solid #1e2035', borderRadius: 8,
-            padding: '6px 12px', fontSize: 11, color: '#9ab', lineHeight: 1.6 }}>
-            <div>Nyquist: <span style={{ color: '#7eb8f7', fontFamily: 'monospace' }}>{liveInfo.nyquist_hz.toFixed(2)} Hz</span></div>
-            <div>Modos activos: <span style={{ color: '#7eb8f7', fontFamily: 'monospace' }}>{liveInfo.matched_modes.length}</span></div>
+          <div className="absolute bottom-3 right-3 bg-slate-900/90 border border-slate-800 rounded-md px-3 py-2 text-xs text-slate-300 space-y-0.5 backdrop-blur-xs">
+            <div>Nyquist: <span className="text-white font-mono">{liveInfo.nyquist_hz.toFixed(2)} Hz</span></div>
+            <div>Modos activos: <span className="text-white font-mono">{liveInfo.matched_modes.length}</span></div>
           </div>
         )}
 
         {/* Sim mode indicator */}
         {tab === 'sim' && !loading && (
-          <div style={{ position: 'absolute', bottom: 12, right: 12,
-            background: '#0a0a20', border: '1px solid #1e2035', borderRadius: 8,
-            padding: '6px 12px', fontSize: 11, color: '#9ab' }}>
+          <div className="absolute bottom-3 right-3 bg-slate-900/90 border border-slate-800 rounded-md px-3 py-1.5 text-xs text-slate-200 font-mono backdrop-blur-xs">
             {simParams.mode === 'wind'
-              ? `💨 U = ${simParams.windSpeed.toFixed(1)} m/s`
-              : `🌊 Hs = ${simParams.waveHs.toFixed(2)} m  Tp = ${simParams.waveTp.toFixed(1)} s`}
+              ? `Viento: U = ${simParams.windSpeed.toFixed(1)} m/s`
+              : `Oleaje: Hs = ${simParams.waveHs.toFixed(2)} m · Tp = ${simParams.waveTp.toFixed(1)} s`}
           </div>
         )}
-
-        <style>{`
-          @keyframes spin { to { transform: rotate(360deg); } }
-          @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
-        `}</style>
       </div>
     </div>
   );
@@ -1320,67 +1431,79 @@ function SharedControls({
   simMode?: boolean;
 }) {
   return (
-    <>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={labelStyle}>
-          Deformation scale {simMode ? <span style={{ color: '#445' }}>(×0.001)</span> : ''}
-        </span>
-        <input type="number" min={0} step={10} value={uiState.defScale}
+    <div className="space-y-3">
+      <div>
+        <label className="ui-label">
+          Escala de deformación {simMode ? <span className="text-gray-400 font-mono">(×0.001)</span> : ''}
+        </label>
+        <input
+          type="number"
+          min={0}
+          step={10}
+          value={uiState.defScale}
           onChange={e => setField('defScale', Math.max(0, Number(e.target.value)))}
-          style={{ ...selectStyle, fontSize: 13 }} />
-      </label>
-
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-        <input type="checkbox" checked={uiState.showDeform}
-          onChange={e => setField('showDeform', e.target.checked)}
-          style={{ accentColor: '#7eb8f7', width: 14, height: 14 }} />
-        <span style={{ color: '#cdd' }}>Show deformation</span>
-      </label>
-
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={labelStyle}>Color by</span>
-        <select value={uiState.colorBy} onChange={e => setField('colorBy', e.target.value as ColorComponent)} style={selectStyle}>
-          <option value="magnitude">Magnitude |u|</option>
-          <option value="x">Component X</option>
-          <option value="y">Component Y</option>
-          <option value="z">Component Z</option>
-        </select>
-      </label>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={labelStyle}>Colorbar</span>
-        <div style={{ fontSize: 10, color: '#9ab', textAlign: 'right' }}>{cbMax}</div>
-        <div style={{ height: 140, borderRadius: 4,
-          background: 'linear-gradient(to bottom, #7a0403,#fb8022,#c2df25,#31d056,#1f9ebe,#4454c4,#30123b)' }} />
-        <div style={{ fontSize: 10, color: '#9ab' }}>{cbMin}</div>
+          className="ui-input text-xs font-mono"
+        />
       </div>
-    </>
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={uiState.showDeform}
+          onChange={e => setField('showDeform', e.target.checked)}
+          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <span className="text-xs text-gray-700 dark:text-gray-200">Mostrar deformación</span>
+      </label>
+
+      <div>
+        <label className="ui-label">Colorear por</label>
+        <select
+          value={uiState.colorBy}
+          onChange={e => setField('colorBy', e.target.value as ColorComponent)}
+          className="ui-input text-xs"
+        >
+          <option value="magnitude">Magnitud |u|</option>
+          <option value="x">Componente X</option>
+          <option value="y">Componente Y</option>
+          <option value="z">Componente Z</option>
+        </select>
+      </div>
+
+      <div>
+        <span className="ui-label">Escala cromática (Turbo)</span>
+        <div className="h-3 w-full rounded-sm mt-1" style={{
+          background: 'linear-gradient(to right, #30123b, #4454c4, #1f9ebe, #31d056, #c2df25, #fb8022, #7a0403)',
+        }} />
+        <div className="flex justify-between text-[10px] font-mono text-gray-500 mt-1">
+          <span>{cbMin}</span>
+          <span>{cbMax}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
 function StatsPanel({ stats }: { stats: { vertices: number; triangles: number; numModes: number; mapped: number } }) {
   return (
-    <div>
-      <span style={{ ...labelStyle, display: 'block', marginBottom: 6 }}>Stats</span>
+    <div className="space-y-1.5">
+      <span className="ui-eyebrow block mb-2">Estadísticas de malla</span>
       {[
-        ['Vertices', stats.vertices.toLocaleString()],
-        ['Triangles', stats.triangles.toLocaleString()],
-        ['Modes', stats.numModes],
-        ['Mapped nodes', stats.mapped.toLocaleString()],
+        ['Vértices', stats.vertices.toLocaleString()],
+        ['Triángulos', stats.triangles.toLocaleString()],
+        ['Modos propios', stats.numModes],
+        ['Nodos mapeados', stats.mapped.toLocaleString()],
       ].map(([k, v]) => (
-        <div key={k as string} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-          <span style={{ color: '#556' }}>{k}</span>
-          <span style={{ color: '#cde' }}>{v}</span>
+        <div key={k as string} className="flex justify-between text-xs">
+          <span className="text-gray-500">{k}</span>
+          <span className="font-mono text-gray-800 dark:text-gray-200">{v}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function Divider() { return <div style={{ borderTop: '1px solid #1e2035' }} />; }
+function Divider() {
+  return <div className="border-t border-gray-200 dark:border-slate-800" />;
+}
 
-const labelStyle: React.CSSProperties = { color: '#9ab', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8 };
-const selectStyle: React.CSSProperties = {
-  background: '#181828', border: '1px solid #2a2d4a', color: '#e0e6f0',
-  borderRadius: 6, padding: '5px 8px', fontSize: 12, width: '100%', outline: 'none',
-};

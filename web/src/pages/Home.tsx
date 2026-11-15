@@ -1,227 +1,231 @@
 import {
-  Activity, Bell, Box, CheckCircle, Cpu, LayoutDashboard,
-  Signal, Wind, Waves, ShieldCheck, ArrowRight, Brain, Database, Users, Radio
+  Activity, Box, Cpu, Signal, Waves, ShieldCheck, ArrowRight, Brain, Database, Users, Radio, Map, Boxes,
 } from 'lucide-react';
 import { useTwinStore } from '../store/twinStore';
 import { useProfileStore } from '../store/profileStore';
 import { Link } from 'react-router-dom';
+import { Glyph } from '../components/ui/Glyph';
+import { Badge, Button, Card, CardHeader, PageHeader, Stat, StatusDot } from '../components/ui';
 
 export default function Home() {
   const { isConnected, isSimulating, toggleSimulation, structural, envConditions } = useTwinStore();
   const { profiles, activeProfileId, setActiveProfile } = useProfileStore();
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
-  const healthScore = structural ? (100 - (structural.shm.damageIndex * 100)).toFixed(1) : '99.9';
+  const healthScore = structural ? (100 - structural.shm.damageIndex * 100).toFixed(1) : '99.9';
   const isHealthy = structural ? structural.shm.damageIndex < 0.3 : true;
 
-  const stats = [
+  const quickLinks = [
     {
-      label: 'Telemetría & MQTT',
-      value: isConnected ? (isSimulating ? 'Simulando 6-DOF' : 'Sincronizado') : 'En Espera',
-      icon: Signal,
-      color: isConnected ? 'text-emerald-500' : 'text-amber-500',
-      bg: isConnected ? 'bg-emerald-100 dark:bg-emerald-500/10' : 'bg-amber-100 dark:bg-amber-500/10',
-      border: isConnected ? 'border-emerald-200 dark:border-emerald-500/20' : 'border-amber-200 dark:border-amber-500/20'
+      title: 'Monitor 3D',
+      icon: Box,
+      path: '/twin',
+      desc: 'Cinemática 6-DOF en tiempo real, flujo de cámara y geometría 3D.',
     },
     {
-      label: 'Visión IA (YOLO Pose)',
-      value: `${activeProfile?.config.aiConfig?.numKeypoints || 11} Keypoints`,
-      icon: Cpu,
-      color: 'text-blue-500',
-      bg: 'bg-blue-100 dark:bg-blue-500/10',
-      border: 'border-blue-200 dark:border-blue-500/20'
+      title: 'Gemelos digitales',
+      icon: Users,
+      path: '/profiles',
+      desc: 'Perfiles de activo, parámetros físicos, modelos 3D y paneles.',
     },
     {
-      label: 'Integridad Estructural',
-      value: `${healthScore}%`,
-      icon: ShieldCheck,
-      color: isHealthy ? 'text-emerald-500' : 'text-amber-500',
-      bg: isHealthy ? 'bg-emerald-100 dark:bg-emerald-500/10' : 'bg-amber-100 dark:bg-amber-500/10',
-      border: isHealthy ? 'border-emerald-200 dark:border-emerald-500/20' : 'border-amber-200 dark:border-amber-500/20'
+      title: 'Entrenamiento IA',
+      icon: Brain,
+      path: '/training',
+      desc: 'Configuración y ejecución de entrenamientos YOLO Pose y detección.',
     },
     {
-      label: 'Entorno (Viento / Ola)',
-      value: `${envConditions?.windSpeed?.toFixed(1) || 12} m/s · ${envConditions?.waveHeight?.toFixed(1) || 2.5} m`,
-      icon: Waves,
-      color: 'text-cyan-500',
-      bg: 'bg-cyan-100 dark:bg-cyan-500/10',
-      border: 'border-cyan-200 dark:border-cyan-500/20'
+      title: 'Datasets y pose',
+      icon: Database,
+      path: '/dataset',
+      desc: 'Generación sintética con Blender, partición y edición de etiquetas.',
+    },
+    {
+      title: 'Análisis SHM',
+      icon: Activity,
+      path: '/shm',
+      desc: 'Acumulación de fatiga, curvas S-N y vida útil remanente.',
+    },
+    {
+      title: 'Análisis FEM',
+      icon: Boxes,
+      path: '/fem',
+      desc: 'Malla de elementos finitos, modos propios y respuesta espectral.',
+    },
+    {
+      title: 'Mapa geográfico',
+      icon: Map,
+      path: '/map',
+      desc: 'Posición GPS, deriva y condiciones ambientales del emplazamiento.',
     },
   ];
 
-  const quickLinks = [
-    { title: 'Monitor 3D en Tiempo Real', icon: Box, path: '/twin', desc: 'Visualización cinemática 6-DOF, cámara MJPEG y selección de geometría 3D.', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10' },
-    { title: 'Gemelos Digitales y Perfiles', icon: Users, path: '/profiles', desc: 'Crea y personaliza múltiples activos, parámetros físicos, modelos 3D y flujos Node-RED.', color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-500/10' },
-    { title: 'Centro de Entrenamiento IA', icon: Brain, path: '/training', desc: 'Configura train.yaml, entrena modelos YOLO Pose/Detección y asígnalos a tus gemelos.', color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-500/10' },
-    { title: 'Gestor de Datasets & Pose', icon: Database, path: '/dataset', desc: 'Genera datasets sintéticos con Blender, divide Train/Val y edita etiquetas YOLO.', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-500/10' },
-    { title: 'Análisis Estructural SHM & FEM', icon: Activity, path: '/shm', desc: 'Acumulación de fatiga (Miner/Paris), curvas S-N, predicción RUL y solver FEM.', color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-500/10' },
-    { title: 'Mapa Geoespacial y Deriva', icon: CheckCircle, path: '/map', desc: 'Seguimiento de posición GPS/deriva y condiciones meteorológicas en vivo.', color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-500/10' },
-  ];
+  const alerts = structural?.shm.alerts ?? [];
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8">
-      {/* Dynamic Hero Banner */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950 rounded-2xl p-8 md:p-10 shadow-xl border border-blue-800/50">
-        <div className="absolute top-0 right-0 w-full h-full opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at right top, #60a5fa, transparent 50%)' }}></div>
-        <div className="absolute -right-20 -bottom-20 opacity-15 transform rotate-12">
-          <Wind className="w-96 h-96 text-white" />
-        </div>
+    <div className="mx-auto max-w-7xl space-y-6">
+      <PageHeader
+        title={
+          <span className="inline-flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+              <Glyph name={activeProfile?.icon} size={15} />
+            </span>
+            <span>{activeProfile?.name || 'Plataforma Digital Twin'}</span>
+          </span>
+        }
+        description={
+          activeProfile?.description ||
+          'Seguimiento óptico por visión artificial, monitorización estructural SHM/FEM y gestión de modelos.'
+        }
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon={Radio}
+              onClick={() => toggleSimulation()}
+            >
+              {isSimulating ? 'Detener simulación' : 'Simular telemetría'}
+            </Button>
+            <Link to="/profiles">
+              <Button variant="secondary">Gemelos ({profiles.length})</Button>
+            </Link>
+            <Link to="/twin">
+              <Button variant="primary">
+                Abrir monitor
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </>
+        }
+      />
 
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-semibold uppercase tracking-wider mb-4">
-              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
-              Plataforma Multi-Gemelo Digital Configurable
-            </div>
-            <h1 className="text-3xl md:text-4xl font-extrabold text-white mb-3 tracking-tight flex items-center gap-3">
-              <span>{activeProfile?.icon || '🌊'}</span>
-              <span>{activeProfile?.name || 'OC4 Digital Twin Platform'}</span>
-            </h1>
-            <p className="text-base text-blue-100/80 mb-6 leading-relaxed">
-              {activeProfile?.description ||
-                'Plataforma generalista de Gemelos Digitales con seguimiento óptico por Visión Artificial (YOLO Pose), simulación estructural SHM/FEM en tiempo real y entrenamiento IA integrado desde la web.'}
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Link to="/twin" className="px-5 py-2.5 bg-blue-500 hover:bg-blue-400 text-white text-sm font-semibold rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-blue-500/20">
-                Abrir Monitor 3D <ArrowRight className="w-4 h-4" />
-              </Link>
-              <Link to="/profiles" className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-xl border border-slate-700 transition-colors">
-                Personalizar Gemelos ({profiles.length})
-              </Link>
-              <button
-                onClick={() => toggleSimulation()}
-                className={`px-5 py-2.5 text-sm font-semibold rounded-xl border transition-all flex items-center gap-2 ${
-                  isSimulating
-                    ? 'bg-amber-500/20 border-amber-400 text-amber-300'
-                    : 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
-                }`}
-              >
-                <Radio className="w-4 h-4" />
-                {isSimulating ? 'Detener Simulación 6-DOF' : 'Iniciar Simulación en Vivo'}
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Twin Switcher Card */}
-          <div className="bg-slate-950/70 backdrop-blur-md border border-slate-800 rounded-2xl p-4 min-w-[280px]">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">
-              Gemelos Digitales Disponibles
-            </div>
-            <div className="space-y-1.5 max-h-44 overflow-y-auto">
-              {profiles.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => setActiveProfile(p.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs transition-all ${
-                    p.id === activeProfile?.id
-                      ? 'bg-blue-600/25 border border-blue-500/40 text-white font-semibold'
-                      : 'bg-slate-900/60 hover:bg-slate-800 text-slate-300 border border-transparent'
-                  }`}
-                >
-                  <span className="text-base">{p.icon}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate">{p.name}</div>
-                    <div className="text-[10px] text-slate-400 font-mono truncate">
-                      {p.config.mqttTopic}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+      {/* Metrics */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat
+          label="Telemetría y MQTT"
+          value={isConnected ? (isSimulating ? 'Simulando 6-DOF' : 'Sincronizado') : 'En espera'}
+          hint={activeProfile?.config.mqttTopic || 'oc4/telemetry'}
+          icon={Signal}
+          tone={isConnected ? 'success' : 'warning'}
+        />
+        <Stat
+          label="Visión IA (YOLO Pose)"
+          value={`${activeProfile?.config.aiConfig?.numKeypoints || 11} keypoints`}
+          hint={activeProfile?.config.aiConfig?.yoloModelPath || 'Modelo por defecto'}
+          icon={Cpu}
+        />
+        <Stat
+          label="Integridad estructural"
+          value={`${healthScore}%`}
+          hint={`Acero ${activeProfile?.config.physicsConfig?.yieldStrength || 355} MPa`}
+          icon={ShieldCheck}
+          tone={isHealthy ? 'success' : 'warning'}
+        />
+        <Stat
+          label="Viento / oleaje"
+          value={`${envConditions?.windSpeed?.toFixed(1) || 12} m/s · ${envConditions?.waveHeight?.toFixed(1) || 2.5} m`}
+          hint={`Escala 1:${activeProfile?.config.physicsConfig?.scaleFactor || 100}`}
+          icon={Waves}
+        />
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, i) => (
-          <div key={i} className={`bg-white dark:bg-slate-800 p-5 rounded-2xl border ${stat.border} shadow-sm transition-all hover:shadow-md`}>
-            <div className="flex items-center gap-3 mb-2">
-              <div className={`p-2.5 rounded-xl ${stat.bg}`}>
-                <stat.icon className={`w-5 h-5 ${stat.color}`} />
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wide">{stat.label}</p>
-            </div>
-            <p className="text-xl font-bold text-gray-900 dark:text-white pl-1">{stat.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Quick Actions */}
-        <div className="lg:col-span-2">
-          <h2 className="text-xl font-bold mb-5 text-gray-800 dark:text-white flex items-center gap-2">
-            <LayoutDashboard className="w-5 h-5 text-gray-400" />
-            Módulos de la Plataforma
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* Main grid: modules + system state */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader title="Módulos" description="Acceso directo a las herramientas de la plataforma" />
+          <div className="grid grid-cols-1 divide-y divide-zinc-200 sm:grid-cols-2 sm:divide-y-0 dark:divide-zinc-800">
             {quickLinks.map((link, i) => (
               <Link
-                key={i}
+                key={link.path}
                 to={link.path}
-                className="group p-5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 shadow-sm hover:shadow-xl transition-all flex flex-col items-start h-full"
+                className={`group flex items-start justify-between gap-4 p-4 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40 ${
+                  i >= 2 ? 'sm:border-t sm:border-zinc-200 dark:sm:border-zinc-800' : ''
+                } ${i % 2 === 1 ? 'sm:border-l sm:border-zinc-200 dark:sm:border-zinc-800' : ''}`}
               >
-                <div className={`p-3 rounded-xl ${link.bg} mb-4 group-hover:scale-110 transition-transform`}>
-                  <link.icon className={`w-6 h-6 ${link.color}`} />
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-200 text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+                    <link.icon className="h-4 w-4" strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{link.title}</h3>
+                    <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{link.desc}</p>
+                  </div>
                 </div>
-                <h3 className="font-bold text-base text-gray-900 dark:text-white mb-1.5">{link.title}</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{link.desc}</p>
+                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-zinc-300 transition-transform group-hover:translate-x-0.5 group-hover:text-zinc-600 dark:text-zinc-600 dark:group-hover:text-zinc-300" />
               </Link>
             ))}
           </div>
-        </div>
+        </Card>
 
-        {/* Notifications / System Log */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-6 shadow-sm flex flex-col h-full">
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100 dark:border-slate-700">
-            <h2 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
-              <Bell className="w-5 h-5 text-gray-400" /> Estado del Sistema
-            </h2>
-            <div className="flex h-3 w-3 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+        <div className="space-y-6">
+          {/* Active twin switcher */}
+          <Card>
+            <CardHeader
+              title="Gemelo activo"
+              actions={
+                <Link to="/profiles" className="text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
+                  Ver todos
+                </Link>
+              }
+            />
+            <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
+              {profiles.map(p => {
+                const selected = p.id === activeProfile?.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setActiveProfile(p.id)}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-zinc-200 text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+                        <Glyph name={p.icon} size={13} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">{p.name}</p>
+                        <p className="truncate font-mono text-[11px] text-zinc-500">{p.config.mqttTopic}</p>
+                      </div>
+                    </div>
+                    {selected && <Badge tone="success" dot>Activo</Badge>}
+                  </button>
+                );
+              })}
             </div>
-          </div>
+          </Card>
 
-          <div className="space-y-5 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-            <div className="flex gap-3 items-start">
-              <div className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0">
-                <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900 dark:text-white">
-                  Gemelo Activo: {activeProfile?.name || 'OC4 Floating Turbine'}
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Tópico: {activeProfile?.config.mqttTopic || 'oc4/telemetry'} · Escala 1:{activeProfile?.config.physicsConfig?.scaleFactor || 100}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3 items-start">
-              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900 dark:text-white">Motor Físico y SHM Listo</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Acero {activeProfile?.config.physicsConfig?.yieldStrength || 355} MPa · {activeProfile?.config.physicsConfig?.numMooringLines || 3} líneas de soporte.
-                </p>
-              </div>
-            </div>
-
-            {structural?.shm.alerts.map((alert, i) => (
-              <div key={i} className="flex gap-3 items-start">
-                <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center shrink-0">
-                  <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                </div>
+          {/* System state */}
+          <Card>
+            <CardHeader title="Estado del sistema" />
+            <div className=" space-y-3 p-4 text-xs">
+              <div className="flex items-start gap-2.5">
+                <StatusDot tone="success" />
                 <div>
-                  <p className="text-sm font-bold text-gray-900 dark:text-white">Alerta Estructural</p>
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{alert}</p>
+                  <p className="font-medium text-zinc-900 dark:text-zinc-100">Motor físico y SHM preparado</p>
+                  <p className="mt-0.5 text-zinc-500">
+                    {activeProfile?.config.physicsConfig?.numMooringLines || 3} líneas de amarre · límite elástico {activeProfile?.config.physicsConfig?.yieldStrength || 355} MPa
+                  </p>
                 </div>
               </div>
-            ))}
-          </div>
+
+              {alerts.length === 0 ? (
+                <div className="flex items-start gap-2.5">
+                  <StatusDot tone="neutral" />
+                  <p className="text-zinc-500">Sin alertas estructurales activas.</p>
+                </div>
+              ) : (
+                alerts.map((alert, i) => (
+                  <div key={i} className="flex items-start gap-2.5">
+                    <StatusDot tone="warning" />
+                    <div>
+                      <p className="font-medium text-zinc-900 dark:text-zinc-100">Alerta estructural</p>
+                      <p className="mt-0.5 text-amber-600 dark:text-amber-400">{alert}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
         </div>
       </div>
     </div>

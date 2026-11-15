@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Camera, CheckCircle2, Loader2, VideoOff } from 'lucide-react';
+import { Camera, Check, Loader2, VideoOff } from 'lucide-react';
 import { useTwinStore } from '../../store/twinStore';
 import { API_BASE_URL } from '../../config/api';
 
@@ -13,7 +13,6 @@ interface CameraEntry {
   status: CameraStatus;
 }
 
-// Only explicitly unavailable cameras are blocked; unknown = selectable
 function isSelectable(status: CameraStatus) {
   return status !== 'unavailable';
 }
@@ -35,42 +34,23 @@ function CameraCard({
       disabled={!selectable}
       title={
         !selectable
-          ? `Camera ${entry.index} unavailable`
+          ? `Cámara ${entry.index} no disponible`
           : active
-          ? `Active — Camera ${entry.index}`
-          : `Switch to Camera ${entry.index}`
+          ? `Cámara ${entry.index} activa`
+          : `Cambiar a cámara ${entry.index}`
       }
       className={[
-        'relative flex-shrink-0 flex flex-col items-center justify-center gap-1.5',
-        'w-16 h-16 rounded-xl border-2 transition-all duration-150 select-none',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400',
+        'relative flex h-12 w-14 shrink-0 select-none flex-col items-center justify-center gap-1 rounded-lg border text-xs transition-colors',
         active
-          ? 'border-sky-400 bg-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.3)]'
+          ? 'border-white bg-zinc-800 text-white'
           : !selectable
-          ? 'border-slate-700 bg-slate-900/60 opacity-40 cursor-not-allowed'
-          : 'border-slate-600 bg-slate-800/80 hover:border-sky-500 hover:bg-sky-950/60 cursor-pointer',
+          ? 'cursor-not-allowed border-zinc-800 bg-zinc-900/50 text-zinc-600 opacity-50'
+          : 'cursor-pointer border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800',
       ].join(' ')}
     >
-      {/* Icon */}
-      {!selectable ? (
-        <VideoOff className="w-5 h-5 text-slate-500" />
-      ) : (
-        <Camera className={`w-5 h-5 ${active ? 'text-sky-300' : 'text-slate-300'}`} />
-      )}
-
-      {/* Index label */}
-      <span
-        className={`text-[11px] font-bold leading-none ${
-          active ? 'text-sky-300' : !selectable ? 'text-slate-600' : 'text-slate-300'
-        }`}
-      >
-        Cam {entry.index}
-      </span>
-
-      {/* Active checkmark badge */}
-      {active && (
-        <CheckCircle2 className="absolute top-1 right-1 w-3 h-3 text-sky-400" />
-      )}
+      {!selectable ? <VideoOff className="h-3.5 w-3.5" /> : <Camera className="h-3.5 w-3.5" />}
+      <span className="text-[10px] font-medium leading-none">Cam {entry.index}</span>
+      {active && <Check className="absolute right-1 top-1 h-2.5 w-2.5 text-white" />}
     </button>
   );
 }
@@ -130,32 +110,21 @@ export function CameraHoverPicker({
   return (
     <div
       className={[
-        'absolute bottom-0 inset-x-0 z-20',
-        'transition-all duration-200 ease-out',
-        visible
-          ? 'translate-y-0 opacity-100 pointer-events-auto'
-          : 'translate-y-3 opacity-0 pointer-events-none',
+        'absolute inset-x-0 bottom-0 z-20 transition-all duration-150',
+        visible ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0',
       ].join(' ')}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="bg-gradient-to-t from-black/95 via-black/80 to-transparent px-3 pt-8 pb-3">
-        {/* Header */}
-        <div className="flex items-center gap-1.5 mb-2.5">
-          <Camera className="w-3 h-3 text-sky-400" />
-          <span className="text-[10px] font-semibold text-sky-300 uppercase tracking-widest">
-            Camera source
-          </span>
-          {scanStatus === 'loading' && (
-            <Loader2 className="w-3 h-3 text-slate-500 animate-spin ml-1" />
-          )}
-          {scanStatus === 'error' && (
-            <span className="text-[10px] text-amber-400 ml-1">· backend offline</span>
-          )}
+      <div className="border-t border-zinc-800 bg-zinc-950/95 p-3">
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-zinc-400">
+          <Camera className="h-3 w-3" />
+          <span>Fuente de cámara</span>
+          {scanStatus === 'loading' && <Loader2 className="ml-1 h-3 w-3 animate-spin text-zinc-500" />}
+          {scanStatus === 'error' && <span className="ml-1 text-[10px] text-amber-400">· sin conexión</span>}
         </div>
 
-        {/* Cards */}
-        <div className="flex gap-2 overflow-x-auto pb-0.5">
+        <div className="flex gap-1.5 overflow-x-auto">
           {cameras.map((cam) => (
             <CameraCard
               key={cam.index}

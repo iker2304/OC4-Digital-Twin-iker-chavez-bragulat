@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { API_BASE_URL } from '../config/api';
 import {
-  Database, Upload, Trash2, Save, Sparkles, Split, Eye, EyeOff, RefreshCw, X
+  Database, Upload, Trash2, Save, Sparkles, Split, Eye, EyeOff, RefreshCw, X, Loader2,
 } from 'lucide-react';
+import { Button } from './ui';
 
 type DatasetStats = {
   dataset: string;
@@ -215,20 +216,20 @@ export default function DatasetViewer({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden text-slate-100">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden text-gray-900 dark:text-gray-100">
         {/* Header */}
-        <div className="p-4 border-b border-slate-800 flex flex-wrap justify-between items-center gap-3 bg-slate-950">
-          <div className="flex items-center gap-3">
-            <Database className="w-5 h-5 text-blue-400" />
-            <h2 className="text-lg font-bold text-white">Explorador y Editor de Datasets YOLO Pose</h2>
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-slate-800 flex flex-wrap justify-between items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            <Database className="w-4 h-4 text-gray-500" />
+            <h2 className="text-sm font-semibold">Explorador y editor de datasets YOLO Pose</h2>
             <select
               value={selectedDataset}
               onChange={(e) => {
                 setSelectedDataset(e.target.value);
                 setSelectedImage(null);
               }}
-              className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+              className="ui-input text-xs py-1 w-auto"
             >
               {datasets.map((d) => (
                 <option key={d.name} value={d.name}>
@@ -239,36 +240,28 @@ export default function DatasetViewer({
           </div>
 
           <div className="flex flex-wrap gap-2 items-center">
-            <button
-              onClick={handleGenerateSamples}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-medium"
-              title="Generar muestras sintéticas anotadas con 11 keypoints"
-            >
-              <Sparkles className="w-3.5 h-3.5" /> + Generar Muestras Pose
-            </button>
+            <Button variant="secondary" size="sm" onClick={handleGenerateSamples}>
+              <Sparkles className="w-3.5 h-3.5" /> Generar muestras
+            </Button>
 
-            <button
-              onClick={handleSplitDataset}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-medium"
-              title="Dividir imágenes en Train (80%) y Val (20%)"
-            >
-              <Split className="w-3.5 h-3.5" /> Split Train/Val (80/20)
-            </button>
+            <Button variant="secondary" size="sm" onClick={handleSplitDataset}>
+              <Split className="w-3.5 h-3.5" /> Split 80/20
+            </Button>
 
-            <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-medium cursor-pointer">
-              <Upload className="w-3.5 h-3.5" /> Subir Imagen
+            <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 text-xs font-medium cursor-pointer transition-colors">
+              <Upload className="w-3.5 h-3.5" /> Subir imagen
               <input type="file" accept=".png,.jpg,.jpeg" className="hidden" onChange={handleUploadFile} />
             </label>
 
-            <div className="text-xs text-slate-300 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-              Total: <b>{stats?.total_count || 0}</b> (Train: {stats?.train_count || 0} | Val: {stats?.val_count || 0})
+            <div className="text-xs font-mono text-gray-500 bg-gray-50 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-gray-200 dark:border-slate-700">
+              Total: <b>{stats?.total_count || 0}</b> (T: {stats?.train_count || 0} · V: {stats?.val_count || 0})
             </div>
 
             <button
               onClick={onClose}
-              className="text-slate-400 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-slate-800"
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -276,18 +269,18 @@ export default function DatasetViewer({
         {/* Content */}
         <div className="flex-1 flex overflow-hidden">
           {/* Left Grid */}
-          <div className={`flex-1 flex flex-col transition-all duration-300 ${selectedImage ? 'w-3/5' : 'w-full'}`}>
-            <div className="p-3 flex items-center justify-between border-b border-slate-800 bg-slate-900/60">
-              <div className="flex gap-2">
+          <div className={`flex-1 flex flex-col ${selectedImage ? 'w-3/5' : 'w-full'}`}>
+            <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-200 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-900/60">
+              <div className="flex gap-1.5">
                 <button
                   onClick={() => {
                     setSubset('train');
                     setSelectedImage(null);
                   }}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
                     subset === 'train'
-                      ? 'bg-blue-600 text-white shadow'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800'
                   }`}
                 >
                   Train ({stats?.train_count || 0})
@@ -297,29 +290,25 @@ export default function DatasetViewer({
                     setSubset('val');
                     setSelectedImage(null);
                   }}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
                     subset === 'val'
-                      ? 'bg-blue-600 text-white shadow'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800'
                   }`}
                 >
                   Validation ({stats?.val_count || 0})
                 </button>
               </div>
 
-              <button
-                onClick={loadStatsAndImages}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
-                title="Refrescar lista"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" size="sm" onClick={loadStatsAndImages} title="Refrescar lista">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </Button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 bg-slate-950/50">
+            <div className="flex-1 overflow-y-auto p-4 bg-gray-50/40 dark:bg-slate-950/40">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -327,13 +316,13 @@ export default function DatasetViewer({
                     <div
                       key={img}
                       onClick={() => setSelectedImage(img)}
-                      className={`group cursor-pointer border-2 rounded-lg overflow-hidden transition-all ${
+                      className={`group cursor-pointer border rounded-lg overflow-hidden transition-all bg-white dark:bg-slate-900 ${
                         selectedImage === img
-                          ? 'border-blue-500 ring-2 ring-blue-500/40 scale-[1.02]'
-                          : 'border-slate-800 hover:border-slate-600'
+                          ? 'border-blue-600 ring-2 ring-blue-500/20'
+                          : 'border-gray-200 dark:border-slate-800 hover:border-gray-300 dark:hover:border-slate-700'
                       }`}
                     >
-                      <div className="aspect-square bg-slate-900 relative">
+                      <div className="aspect-square bg-gray-950 relative">
                         <img
                           src={`${API_BASE_URL}/dataset/file/${subset}/images/${img}${queryParam}`}
                           alt={img}
@@ -341,20 +330,17 @@ export default function DatasetViewer({
                           loading="lazy"
                         />
                       </div>
-                      <div className="p-1.5 text-[11px] truncate text-center bg-slate-900 text-slate-300 font-mono">
+                      <div className="p-1.5 text-[11px] truncate text-center text-gray-600 dark:text-gray-300 font-mono">
                         {img}
                       </div>
                     </div>
                   ))}
                   {images.length === 0 && (
-                    <div className="col-span-full text-center py-12 text-slate-500 space-y-3">
-                      <p>No se encontraron imágenes en la partición "{subset}".</p>
-                      <button
-                        onClick={handleGenerateSamples}
-                        className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold"
-                      >
-                        Generar Muestras Sintéticas Ahora
-                      </button>
+                    <div className="col-span-full text-center py-12 text-gray-500 space-y-3">
+                      <p className="text-xs">No se encontraron imágenes en la partición "{subset}".</p>
+                      <Button variant="primary" size="sm" onClick={handleGenerateSamples}>
+                        Generar muestras sintéticas ahora
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -364,35 +350,34 @@ export default function DatasetViewer({
 
           {/* Right Detail & Annotation Overlay View */}
           {selectedImage && (
-            <div className="w-[460px] border-l border-slate-800 flex flex-col bg-slate-900 shadow-2xl z-20">
-              <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-950">
-                <h3 className="font-bold truncate text-xs font-mono text-blue-300" title={selectedImage}>
+            <div className="w-[440px] border-l border-gray-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900 z-20">
+              <div className="p-3 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
+                <h3 className="font-semibold truncate text-xs font-mono text-gray-900 dark:text-white" title={selectedImage}>
                   {selectedImage}
                 </h3>
-                <div className="flex items-center gap-2">
-                  <button
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant={showOverlay ? 'secondary' : 'ghost'}
+                    size="sm"
                     onClick={() => setShowOverlay(!showOverlay)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs ${
-                      showOverlay ? 'bg-blue-600/30 text-blue-300' : 'bg-slate-800 text-slate-400'
-                    }`}
-                    title="Mostrar/ocultar Bounding Box y Keypoints"
                   >
                     {showOverlay ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                     Keypoints
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={handleDeleteSample}
-                    className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400"
+                    className="hover:text-red-600"
                     title="Eliminar muestra"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {/* Image with SVG BBox + Keypoints Overlay */}
-                <div className="rounded-lg overflow-hidden border border-slate-700 bg-slate-950 relative flex items-center justify-center">
+                <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-slate-800 bg-gray-950 relative flex items-center justify-center">
                   <div className="relative w-full aspect-square max-h-[340px]">
                     <img
                       src={`${API_BASE_URL}/dataset/file/${subset}/images/${selectedImage}${queryParam}`}
@@ -453,22 +438,18 @@ export default function DatasetViewer({
                   </div>
                 </div>
 
-                {/* Editable YOLO Label Content */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <h4 className="font-semibold text-xs uppercase text-slate-400 tracking-wider">
+                    <h4 className="ui-eyebrow">
                       Anotación YOLO Pose (.txt) — {parsedObjects[0]?.keypoints.length || 0} Keypoints
                     </h4>
-                    <button
-                      onClick={handleSaveLabel}
-                      className="flex items-center gap-1 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
-                    >
-                      <Save className="w-3.5 h-3.5" /> Guardar Etiqueta
-                    </button>
+                    <Button variant="primary" size="sm" onClick={handleSaveLabel}>
+                      <Save className="w-3.5 h-3.5" /> Guardar
+                    </Button>
                   </div>
 
                   {saveMessage && (
-                    <div className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded">
+                    <div className="text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 px-2.5 py-1 rounded">
                       {saveMessage}
                     </div>
                   )}
@@ -477,12 +458,12 @@ export default function DatasetViewer({
                     value={labelContent}
                     onChange={(e) => setLabelContent(e.target.value)}
                     rows={6}
-                    className="w-full bg-slate-950 p-3 rounded-lg border border-slate-700 text-xs font-mono text-slate-200 focus:outline-none focus:border-blue-500"
+                    className="ui-input text-xs font-mono"
                     placeholder="class cx cy w h kp1_x kp1_y kp1_v ..."
                   />
                 </div>
 
-                <div className="text-[11px] text-slate-500 space-y-1 font-mono">
+                <div className="text-[11px] text-gray-400 space-y-1 font-mono">
                   <p>Dataset: {stats?.dataset || selectedDataset}</p>
                   <p>Imagen: /{subset}/images/{selectedImage}</p>
                 </div>

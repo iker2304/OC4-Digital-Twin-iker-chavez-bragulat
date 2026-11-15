@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  LayoutDashboard, Activity, Settings, Database, Map, ChevronLeft, ChevronRight,
-  Home, Users, LogOut, ChevronDown, Grid, Brain, Radio, Plus
+  LayoutDashboard, Activity, Settings, Database, Map, Home, Users, LogOut, ChevronsUpDown, Brain, Plus,
+  Boxes, LineChart, PanelLeftClose, PanelLeftOpen, Moon, Sun, Check, Radio, type LucideIcon,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
@@ -9,19 +9,62 @@ import cimneLogo from '../../assets/cimne-logo.png';
 import { useAuthStore } from '../../store/authStore';
 import { useProfileStore } from '../../store/profileStore';
 import { useTwinStore } from '../../store/twinStore';
+import { Glyph } from '../ui/Glyph';
+import { StatusDot } from '../ui';
+import { useTheme } from '../../lib/theme';
 
-const navItems = [
-  { icon: Home, label: 'Home', path: '/' },
-  { icon: LayoutDashboard, label: 'Twin Monitor', path: '/twin' },
-  { icon: Users, label: 'Gemelos Digitales', path: '/profiles' },
-  { icon: Brain, label: 'Entrenamiento IA', path: '/training' },
-  { icon: Database, label: 'Datasets & Pose', path: '/dataset' },
-  { icon: Activity, label: 'Análisis SHM', path: '/shm' },
-  { icon: Grid, label: 'Análisis FEM', path: '/fem' },
-  { icon: Map, label: 'Mapa Geográfico', path: '/map' },
-  { icon: Activity, label: 'Grafana', path: '/grafana' },
-  { icon: Settings, label: 'Configuración', path: '/settings' },
+interface NavItem {
+  icon: LucideIcon;
+  label: string;
+  path: string;
+}
+
+const navGroups: { label?: string; items: NavItem[] }[] = [
+  {
+    items: [
+      { icon: Home, label: 'Inicio', path: '/' },
+      { icon: LayoutDashboard, label: 'Monitor', path: '/twin' },
+      { icon: Users, label: 'Gemelos digitales', path: '/profiles' },
+    ],
+  },
+  {
+    label: 'IA y datos',
+    items: [
+      { icon: Brain, label: 'Entrenamiento', path: '/training' },
+      { icon: Database, label: 'Datasets y pose', path: '/dataset' },
+    ],
+  },
+  {
+    label: 'Análisis',
+    items: [
+      { icon: Activity, label: 'SHM', path: '/shm' },
+      { icon: Boxes, label: 'FEM', path: '/fem' },
+      { icon: Map, label: 'Mapa', path: '/map' },
+      { icon: LineChart, label: 'Grafana', path: '/grafana' },
+    ],
+  },
 ];
+
+const footerNav: NavItem[] = [{ icon: Settings, label: 'Configuración', path: '/settings' }];
+
+const allNavItems = [...navGroups.flatMap(g => g.items), ...footerNav];
+
+const isPathActive = (current: string, path: string) =>
+  path === '/' ? current === '/' : current === path || current.startsWith(`${path}/`);
+
+/** Closes a popover when clicking outside of it. */
+function useClickOutside(open: boolean, onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, onClose]);
+  return ref;
+}
 
 export const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
@@ -33,6 +76,10 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
   const { currentUser, logout } = useAuthStore();
   const { profiles, activeProfileId, loadProfiles, setActiveProfile } = useProfileStore();
   const { isSimulating, toggleSimulation, isConnected, connect } = useTwinStore();
+  const { theme, toggleTheme } = useTheme();
+
+  const userMenuRef = useClickOutside(showUserMenu, () => setShowUserMenu(false));
+  const twinMenuRef = useClickOutside(showTwinSelector, () => setShowTwinSelector(false));
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -47,237 +94,261 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
   }, []);
 
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
+  const currentPage = allNavItems.find(i => isPathActive(location.pathname, i.path));
+  const userInitial =
+    currentUser?.full_name?.charAt(0).toUpperCase() || currentUser?.username?.charAt(0).toUpperCase() || 'U';
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  return (
-    <div className="flex h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-white">
-      {/* Sidebar */}
-      <aside
+  const renderNavLink = (item: NavItem) => {
+    const isActive = isPathActive(location.pathname, item.path);
+    return (
+      <Link
+        key={item.path}
+        to={item.path}
+        title={isCollapsed ? item.label : undefined}
         className={clsx(
-          'bg-white border-r border-gray-200 dark:bg-gray-800 dark:border-gray-700 flex flex-col transition-all duration-300 ease-in-out relative',
-          isCollapsed ? 'w-20' : 'w-64'
+          'group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors',
+          isActive
+            ? 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800/80 dark:text-zinc-50'
+            : 'text-zinc-600 hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100',
+          isCollapsed && 'justify-center px-0'
         )}
       >
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="absolute -right-3 top-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full p-1 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 z-50"
-        >
-          {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-        </button>
+        <item.icon
+          className={clsx(
+            'h-4 w-4 shrink-0',
+            isActive ? 'text-zinc-900 dark:text-zinc-50' : 'text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300'
+          )}
+          strokeWidth={1.75}
+        />
+        {!isCollapsed && <span className="truncate">{item.label}</span>}
+      </Link>
+    );
+  };
 
-        <div className="p-6 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 h-20">
+  return (
+    <div className="flex h-screen bg-zinc-50 text-zinc-900 dark:bg-[#0c0c0e] dark:text-zinc-100">
+      {/* ── Sidebar ─────────────────────────────────────────── */}
+      <aside
+        className={clsx(
+          'relative flex shrink-0 flex-col border-r border-zinc-200 bg-white transition-[width] duration-200 dark:border-zinc-800/80 dark:bg-zinc-950',
+          isCollapsed ? 'w-16' : 'w-60'
+        )}
+      >
+        {/* Brand */}
+        <div className={clsx('flex h-14 items-center', isCollapsed ? 'justify-center' : 'px-4')}>
           <img
             src={cimneLogo}
-            alt="CIMNE Logo"
+            alt="CIMNE"
             className={clsx(
-              'object-contain transition-all duration-300',
-              isCollapsed ? 'h-8 w-auto' : 'h-11 w-auto'
+              'w-auto object-contain dark:brightness-0 dark:invert',
+              isCollapsed ? 'h-3.5' : 'h-[18px]'
             )}
           />
+          {!isCollapsed && (
+            <span className="ml-2.5 border-l border-zinc-200 pl-2.5 text-xs font-medium text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+              Digital Twin
+            </span>
+          )}
         </div>
 
-        {/* Active Profile Indicator */}
-        {!isCollapsed && activeProfile && (
-          <div
-            onClick={() => navigate('/profiles')}
-            className="mx-3 mt-3 px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/10 cursor-pointer hover:border-emerald-500/40 transition-all"
-          >
-            <div className="flex items-center gap-2.5">
-              <span className="text-lg">{activeProfile.icon}</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 truncate">
-                  {activeProfile.name}
-                </p>
-                <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 flex items-center gap-1 truncate">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  MQTT: {activeProfile.config.mqttTopic}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <nav className="mt-3 flex-1 px-3 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                title={isCollapsed ? item.label : ''}
-                className={clsx(
-                  'flex items-center px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
-                  isActive
-                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                    : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800',
-                  isCollapsed && 'justify-center px-2'
-                )}
-              >
-                <item.icon
-                  className={clsx(
-                    'w-5 h-5 transition-colors shrink-0',
-                    isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400',
-                    !isCollapsed && 'mr-3'
-                  )}
-                />
-                {!isCollapsed && <span className="truncate">{item.label}</span>}
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* User Profile Section */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700 relative">
+        {/* Active twin switcher */}
+        <div ref={twinMenuRef} className={clsx('relative pb-2', isCollapsed ? 'px-2' : 'px-3')}>
           <button
-            onClick={() => setShowUserMenu(!showUserMenu)}
+            onClick={() => setShowTwinSelector(!showTwinSelector)}
+            title={isCollapsed ? activeProfile?.name : undefined}
             className={clsx(
-              'flex items-center gap-3 w-full hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-xl p-2 transition-all',
-              isCollapsed && 'justify-center'
+              'flex w-full items-center gap-2.5 rounded-lg border border-zinc-200 bg-white p-1.5 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/70',
+              isCollapsed && 'justify-center border-transparent bg-transparent dark:bg-transparent'
             )}
           >
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm"
-              style={{ backgroundColor: '#3b82f6' }}
-            >
-              {currentUser?.full_name?.charAt(0).toUpperCase() ||
-                currentUser?.username?.charAt(0).toUpperCase() ||
-                'U'}
-            </div>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900">
+              <Glyph name={activeProfile?.icon} size={15} />
+            </span>
             {!isCollapsed && (
-              <div className="overflow-hidden flex-1 text-left">
-                <p className="text-sm font-semibold truncate text-gray-900 dark:text-white">
-                  {currentUser?.full_name || currentUser?.username || 'User'}
-                </p>
-                <p className="text-xs text-gray-400 truncate">@{currentUser?.username}</p>
-              </div>
-            )}
-            {!isCollapsed && (
-              <ChevronDown
-                className={clsx('w-4 h-4 text-gray-400 transition-transform', showUserMenu && 'rotate-180')}
-              />
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                    {activeProfile?.name || 'Seleccionar gemelo'}
+                  </span>
+                  <span className="block truncate font-mono text-[10px] text-zinc-500">
+                    {activeProfile?.config.mqttTopic || 'Sin tópico'}
+                  </span>
+                </span>
+                <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+              </>
             )}
           </button>
 
-          {showUserMenu && (
+          {showTwinSelector && (
             <div
               className={clsx(
-                'absolute bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50',
-                isCollapsed ? 'left-full bottom-4 ml-2 w-48' : 'left-3 right-3 bottom-full mb-2'
+                'absolute z-50 mt-1 w-72 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900',
+                isCollapsed ? 'left-full top-0 ml-2' : 'left-3'
               )}
             >
-              <div className="p-3 border-b border-gray-100 dark:border-slate-700">
-                <p className="text-sm font-bold text-gray-900 dark:text-white">
-                  {currentUser?.full_name || currentUser?.username}
-                </p>
-                <p className="text-xs text-gray-400">{currentUser?.email}</p>
+              <div className="px-2 pb-1 pt-1.5 ui-eyebrow">Gemelos digitales</div>
+              <div className="max-h-64 overflow-y-auto">
+                {profiles.map(p => {
+                  const selected = p.id === activeProfile?.id;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        setActiveProfile(p.id);
+                        setShowTwinSelector(false);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+                        <Glyph name={p.icon} size={13} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] text-zinc-900 dark:text-zinc-100">{p.name}</span>
+                        <span className="block truncate font-mono text-[10px] text-zinc-500">
+                          {p.config.mqttTopic} · {p.config.model3dUrl?.replace('/models/', '')}
+                        </span>
+                      </span>
+                      {selected && <Check className="h-4 w-4 shrink-0 text-zinc-900 dark:text-zinc-100" />}
+                    </button>
+                  );
+                })}
               </div>
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
-              >
-                <LogOut className="w-4 h-4" /> Cerrar sesión
-              </button>
+              <div className="mt-1 border-t border-zinc-100 pt-1 dark:border-zinc-800">
+                <button
+                  onClick={() => {
+                    setShowTwinSelector(false);
+                    navigate('/profiles');
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                >
+                  <Plus className="h-4 w-4" /> Gestionar gemelos
+                </button>
+              </div>
             </div>
           )}
         </div>
-      </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 min-w-0 flex flex-col overflow-hidden w-full">
-        <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shadow-sm dark:bg-gray-800 dark:border-gray-700 shrink-0 z-30">
-          <div className="flex items-center gap-4">
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-white">
-              {navItems.find(i => i.path === location.pathname)?.label || 'Plataforma Digital Twin'}
-            </h2>
-          </div>
+        {/* Navigation */}
+        <nav className={clsx('flex-1 space-y-5 overflow-y-auto py-3', isCollapsed ? 'px-2' : 'px-3')}>
+          {navGroups.map((group, gi) => (
+            <div key={gi} className="space-y-0.5">
+              {group.label && !isCollapsed && <div className="px-2.5 pb-1.5 ui-eyebrow">{group.label}</div>}
+              {group.label && isCollapsed && <div className="mx-auto mb-2 h-px w-6 bg-zinc-200 dark:bg-zinc-800" />}
+              {group.items.map(renderNavLink)}
+            </div>
+          ))}
+        </nav>
 
-          <div className="flex items-center space-x-3">
-            {/* Live Telemetry Simulation Button */}
+        {/* Footer: settings + user */}
+        <div className={clsx('space-y-0.5 border-t border-zinc-200 py-3 dark:border-zinc-800/80', isCollapsed ? 'px-2' : 'px-3')}>
+          {footerNav.map(renderNavLink)}
+
+          <div ref={userMenuRef} className="relative">
             <button
-              onClick={() => toggleSimulation()}
+              onClick={() => setShowUserMenu(!showUserMenu)}
               className={clsx(
-                'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
-                isSimulating
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
-                  : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 border-gray-200 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-600'
+                'flex w-full items-center gap-2.5 rounded-md p-1.5 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/60',
+                isCollapsed && 'justify-center'
               )}
-              title="Simular telemetría cinemática 6-DOF, fuerzas de amarre y fatiga SHM para el Gemelo Digital activo"
             >
-              <Radio className={clsx('w-3.5 h-3.5', isSimulating && 'animate-spin text-amber-400')} />
-              <span>{isSimulating ? 'Simulación 6-DOF: ACTIVA' : 'Simular Telemetría'}</span>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[11px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+                {userInitial}
+              </span>
+              {!isCollapsed && (
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                    {currentUser?.full_name || currentUser?.username || 'Usuario'}
+                  </span>
+                </span>
+              )}
+              {!isCollapsed && <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-zinc-400" />}
             </button>
 
-            {/* Global Digital Twin Switcher Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setShowTwinSelector(!showTwinSelector)}
-                className="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-full text-xs hover:border-emerald-500 transition-all"
+            {showUserMenu && (
+              <div
+                className={clsx(
+                  'absolute z-50 w-56 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900',
+                  isCollapsed ? 'bottom-0 left-full ml-2' : 'bottom-full left-0 mb-1'
+                )}
               >
-                <span>{activeProfile?.icon || '🌊'}</span>
-                <span className="font-semibold text-emerald-700 dark:text-emerald-400 max-w-[180px] truncate">
-                  {activeProfile?.name || 'Seleccionar Gemelo'}
-                </span>
-                <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
-              </button>
-
-              {showTwinSelector && (
-                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-2xl shadow-2xl p-2 z-50">
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Cambiar Gemelo Digital Activo
-                  </div>
-                  <div className="max-h-60 overflow-y-auto space-y-1">
-                    {profiles.map(p => (
-                      <button
-                        key={p.id}
-                        onClick={() => {
-                          setActiveProfile(p.id);
-                          setShowTwinSelector(false);
-                        }}
-                        className={clsx(
-                          'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs transition-colors',
-                          p.id === activeProfile?.id
-                            ? 'bg-emerald-500/15 text-emerald-400 font-semibold border border-emerald-500/30'
-                            : 'text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800'
-                        )}
-                      >
-                        <span className="text-base">{p.icon}</span>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate">{p.name}</div>
-                          <div className="text-[10px] text-slate-500 font-mono truncate">
-                            {p.config.mqttTopic} · {p.config.model3dUrl?.replace('/models/', '')}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="pt-2 mt-2 border-t border-gray-100 dark:border-slate-800">
-                    <button
-                      onClick={() => {
-                        setShowTwinSelector(false);
-                        navigate('/profiles');
-                      }}
-                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Gestionar / Crear Gemelos Digitales
-                    </button>
-                  </div>
+                <div className="px-2 py-2">
+                  <p className="truncate text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                    {currentUser?.full_name || currentUser?.username}
+                  </p>
+                  <p className="truncate text-xs text-zinc-500">{currentUser?.email || `@${currentUser?.username}`}</p>
                 </div>
-              )}
-            </div>
+                <div className="my-1 h-px bg-zinc-100 dark:bg-zinc-800" />
+                <button
+                  onClick={toggleTheme}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  {theme === 'dark' ? 'Tema claro' : 'Tema oscuro'}
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                >
+                  <LogOut className="h-4 w-4" /> Cerrar sesión
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
 
-            <div className="flex items-center gap-2 px-3 py-1 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 rounded-full text-xs font-medium border border-green-100 dark:border-green-500/20">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-              Online
+      {/* ── Main ────────────────────────────────────────────── */}
+      <main className="flex w-full min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-zinc-200 bg-white/80 px-4 backdrop-blur dark:border-zinc-800/80 dark:bg-zinc-950/80">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              title={isCollapsed ? 'Expandir menú' : 'Contraer menú'}
+            >
+              {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </button>
+            <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800" />
+            <nav className="flex min-w-0 items-center gap-1.5 text-[13px]">
+              <span className="truncate text-zinc-500">{activeProfile?.name || 'Plataforma'}</span>
+              <span className="text-zinc-300 dark:text-zinc-700">/</span>
+              <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">
+                {currentPage?.label || 'Digital Twin'}
+              </span>
+            </nav>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => toggleSimulation()}
+              title="Simular telemetría cinemática 6-DOF, fuerzas de amarre y fatiga SHM para el gemelo activo"
+              className={clsx(
+                'inline-flex h-8 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors',
+                isSimulating
+                  ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-400'
+                  : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+              )}
+            >
+              {isSimulating ? <StatusDot tone="warning" pulse /> : <Radio className="h-3.5 w-3.5" strokeWidth={1.75} />}
+              <span className="hidden sm:inline">{isSimulating ? 'Simulación activa' : 'Simular telemetría'}</span>
+            </button>
+
+            <div
+              className="inline-flex h-8 items-center gap-2 rounded-lg border border-zinc-200 px-3 text-xs font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
+              title={isConnected ? 'Conectado al servidor de telemetría' : 'Sin conexión con el servidor de telemetría'}
+            >
+              <StatusDot tone={isConnected ? 'success' : 'neutral'} />
+              <span className="hidden sm:inline">{isConnected ? 'Conectado' : 'Desconectado'}</span>
             </div>
           </div>
         </header>
-        <div className="flex-1 min-w-0 overflow-auto p-6 relative">
-          {children}
-        </div>
+
+        <div className="relative min-w-0 flex-1 overflow-auto p-6 lg:p-8">{children}</div>
       </main>
     </div>
   );

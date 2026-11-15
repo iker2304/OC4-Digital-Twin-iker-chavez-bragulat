@@ -26,7 +26,7 @@ import {
 import * as THREE from 'three';
 import {
   Activity, Radio, ZapOff, ChevronDown, ChevronUp,
-  BarChart2, Clock, Sliders
+  BarChart2, Clock, Sliders, Loader2, AlertTriangle
 } from 'lucide-react';
 
 import { useModalStore } from '../../store/modalStore';
@@ -357,13 +357,14 @@ export const FemMeshViewer = () => {
           {/* FEM loading state */}
           {!femShapesLoaded && !femShapesError && (
             <div className="text-xs text-slate-400 bg-slate-900/70 backdrop-blur-md border border-slate-700/50 rounded-lg px-3 py-2 flex items-center gap-1.5">
-              <span className="animate-spin text-cyan-400">⟳</span>
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
               Cargando base modal FEM…
             </div>
           )}
           {femShapesError && (
-            <div className="text-xs text-red-400 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">
-              ⚠ FEM: {femShapesError}
+            <div className="text-xs text-red-400 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>FEM: {femShapesError}</span>
             </div>
           )}
         </div>

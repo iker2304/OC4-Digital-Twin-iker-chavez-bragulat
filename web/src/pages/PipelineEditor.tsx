@@ -6,6 +6,7 @@ import {
     Maximize2, ZoomIn, ZoomOut, RotateCcw, X, Copy, Edit3,
     Layers, Code, Radio, Paintbrush, Database, Cpu, SlidersHorizontal
 } from 'lucide-react';
+import { Glyph } from '../components/ui/Glyph';
 
 const CATEGORY_META: Record<NodeCategory, { label: string; icon: React.ReactNode; color: string }> = {
     data: { label: 'Data', icon: <Database className="w-4 h-4" />, color: '#14b8a6' },
@@ -402,10 +403,10 @@ export default function PipelineEditor() {
                                                         className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group hover:bg-gray-50 dark:hover:bg-slate-700/50 border border-transparent hover:border-gray-200 dark:hover:border-slate-600"
                                                     >
                                                         <div
-                                                            className="w-9 h-9 rounded-lg flex items-center justify-center text-base shrink-0 transition-transform group-hover:scale-110"
-                                                            style={{ backgroundColor: template.color + '15', border: `1px solid ${template.color}25` }}
+                                                            className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-200"
+                                                            style={{ borderLeft: `2px solid ${template.color}` }}
                                                         >
-                                                            {template.icon}
+                                                            <Glyph name={template.icon} className="w-4 h-4" />
                                                         </div>
                                                         <div className="min-w-0">
                                                             <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{template.label}</p>
@@ -453,18 +454,18 @@ export default function PipelineEditor() {
                         // Empty state
                         <div className="absolute inset-0 flex items-center justify-center">
                             <div className="text-center max-w-md">
-                                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center border border-gray-200 dark:border-slate-700">
-                                    <Layers className="w-10 h-10 text-gray-400" />
+                                <div className="w-14 h-14 mx-auto mb-4 rounded-lg bg-gray-100 dark:bg-slate-800 flex items-center justify-center border border-gray-200 dark:border-slate-700">
+                                    <Layers className="w-6 h-6 text-gray-500" />
                                 </div>
-                                <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-2">Pipeline Editor</h3>
-                                <p className="text-gray-500 mb-6 text-sm">
+                                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1.5">Pipeline Editor</h3>
+                                <p className="text-gray-500 mb-5 text-xs">
                                     Create a pipeline to start building your data flow. Drag nodes from the palette and connect them together.
                                 </p>
                                 <button
                                     onClick={() => setShowCreatePipeline(true)}
-                                    className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 hover:-translate-y-0.5 transition-all"
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 font-medium text-xs rounded-md hover:bg-gray-800 dark:hover:bg-white transition-colors"
                                 >
-                                    <Plus className="w-5 h-5" /> Create Pipeline
+                                    <Plus className="w-4 h-4" /> Create Pipeline
                                 </button>
                             </div>
                         </div>
@@ -503,36 +504,35 @@ export default function PipelineEditor() {
                                     onMouseDown={(e) => handleNodeMouseDown(node.id, e)}
                                 >
                                     <div
-                                        className={`rounded-2xl border-2 overflow-hidden backdrop-blur-sm transition-all duration-200 ${selectedNodeId === node.id
-                                            ? 'shadow-xl scale-[1.02]'
-                                            : 'shadow-md hover:shadow-lg'
+                                        className={`rounded-lg border bg-white dark:bg-slate-900 overflow-hidden transition-shadow ${selectedNodeId === node.id
+                                            ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md'
+                                            : 'border-gray-200 dark:border-slate-800 shadow-xs'
                                             }`}
                                         style={{
-                                            borderColor: selectedNodeId === node.id ? node.color : node.color + '40',
-                                            background: `linear-gradient(135deg, ${'rgba(255,255,255,0.95)'}, ${'rgba(255,255,255,0.85)'})`,
+                                            borderLeftWidth: 3,
+                                            borderLeftColor: node.color,
                                         }}
                                     >
                                         {/* Node header */}
                                         <div
-                                            className="px-4 py-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing"
-                                            style={{ background: node.color + '12' }}
+                                            className="px-3 py-2 flex items-center gap-2 border-b border-gray-100 dark:border-slate-800 cursor-grab active:cursor-grabbing bg-gray-50/70 dark:bg-slate-800/50"
                                         >
-                                            <span className="text-lg">{node.icon}</span>
-                                            <span className="text-xs font-bold truncate" style={{ color: node.color }}>{node.label}</span>
+                                            <Glyph name={node.icon} className="w-4 h-4 text-gray-700 dark:text-gray-200 shrink-0" />
+                                            <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">{node.label}</span>
                                             <div className="ml-auto flex gap-1">
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); setShowNodeConfig(true); selectNode(node.id); }}
-                                                    className="p-1 rounded-lg hover:bg-white/50 transition-all"
+                                                    className="p-1 rounded hover:bg-gray-200/70 dark:hover:bg-slate-700 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
                                                     title="Configure"
                                                 >
-                                                    <Edit3 className="w-3 h-3" style={{ color: node.color + '80' }} />
+                                                    <Edit3 className="w-3 h-3" />
                                                 </button>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); removeNode(node.id); }}
-                                                    className="p-1 rounded-lg hover:bg-red-100 transition-all"
+                                                    className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/40 text-gray-400 hover:text-red-600 transition-colors"
                                                     title="Delete node"
                                                 >
-                                                    <X className="w-3 h-3 text-gray-400 hover:text-red-500" />
+                                                    <X className="w-3 h-3" />
                                                 </button>
                                             </div>
                                         </div>
@@ -608,8 +608,8 @@ export default function PipelineEditor() {
                     <div className="w-80 bg-white dark:bg-slate-800 border-l border-gray-200 dark:border-slate-700 flex flex-col shrink-0 overflow-hidden">
                         <div className="p-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <span className="text-lg">{selectedNode.icon}</span>
-                                <h3 className="text-sm font-bold" style={{ color: selectedNode.color }}>{selectedNode.label}</h3>
+                                <Glyph name={selectedNode.icon} className="w-4 h-4 text-gray-700 dark:text-gray-200" />
+                                <h3 className="text-sm font-bold text-gray-900 dark:text-white">{selectedNode.label}</h3>
                             </div>
                             <button onClick={() => setShowNodeConfig(false)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-all">
                                 <X className="w-4 h-4 text-gray-400" />

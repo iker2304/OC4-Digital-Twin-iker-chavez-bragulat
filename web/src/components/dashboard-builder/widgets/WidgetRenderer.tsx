@@ -1,5 +1,5 @@
 import { useMemo, Suspense, useState, useEffect, useCallback } from 'react';
-import { Layers, Eye, EyeOff } from 'lucide-react';
+import { Layers, Eye, EyeOff, ArrowUpRight, ArrowDownRight, MapPin, Box } from 'lucide-react';
 import { Canvas } from '@react-three/fiber';
 import { useGLTF, OrbitControls, Stage } from '@react-three/drei';
 import {
@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import type { DashboardWidget, StreamDefinition } from '../../../store/dashboardStore';
 import { API_BASE_URL } from '../../../config/api';
+import { Glyph } from '../../ui/Glyph';
 
 interface WidgetRendererProps {
   widget: DashboardWidget;
@@ -15,7 +16,6 @@ interface WidgetRendererProps {
   editMode?: boolean;
 }
 
-// ── Helper to generate demo data when no stream is connected ──
 function genDemoTimeSeries(n = 30, base = 50, amp = 15) {
   return Array.from({ length: n }, (_, i) => ({
     t: i,
@@ -25,18 +25,17 @@ function genDemoTimeSeries(n = 30, base = 50, amp = 15) {
 
 // ── Time Series ──
 function TimeSeriesWidget({ widget, stream }: { widget: DashboardWidget; stream?: StreamDefinition }) {
-  const color = (widget.config.color as string) || '#3b82f6';
+  const color = (widget.config.color as string) || '#2563eb';
   const [data, setData] = useState(() => genDemoTimeSeries());
 
   useEffect(() => {
     if (!stream) return;
-    
-    // For connected streams, we also need to advance the chart even if the value hasn't changed.
+
     const interval = setInterval(() => {
       if (stream.lastValue !== undefined && stream.lastValue !== null) {
         let nextVal = 0;
         if (Array.isArray(stream.lastValue)) {
-           nextVal = stream.lastValue.length;
+          nextVal = stream.lastValue.length;
         } else {
           const val = typeof stream.lastValue === 'number' ? stream.lastValue : parseFloat(String(stream.lastValue));
           if (!isNaN(val)) nextVal = val;
@@ -44,7 +43,7 @@ function TimeSeriesWidget({ widget, stream }: { widget: DashboardWidget; stream?
         setData(prev => [...prev.slice(-29), { t: Date.now(), v: nextVal }]);
       }
     }, 2000);
-    
+
     return () => clearInterval(interval);
   }, [stream]);
 
@@ -58,14 +57,11 @@ function TimeSeriesWidget({ widget, stream }: { widget: DashboardWidget; stream?
           const val = await res.json();
           if (val.lastValue !== undefined && val.lastValue !== null) {
             let nextVal = 0;
-            // Check if it's an array (like keypoints or bounding boxes)
             if (Array.isArray(val.lastValue)) {
-               nextVal = val.lastValue.length;
+              nextVal = val.lastValue.length;
             } else {
               const numVal = typeof val.lastValue === 'number' ? val.lastValue : parseFloat(String(val.lastValue));
-              if (!isNaN(numVal)) {
-                nextVal = numVal;
-              }
+              if (!isNaN(numVal)) nextVal = numVal;
             }
             setData(prev => [...prev.slice(-29), { t: Date.now(), v: nextVal }]);
           }
@@ -81,15 +77,11 @@ function TimeSeriesWidget({ widget, stream }: { widget: DashboardWidget; stream?
   }, [widget.streamId, stream]);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full flex-col">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-          <XAxis 
-            dataKey="t" 
-            tick={{ fontSize: 9, fill: 'var(--chart-axis)' }} 
-            hide={!stream} // Hide X axis for demo data as it's just indices
-          />
+          <XAxis dataKey="t" tick={{ fontSize: 9, fill: 'var(--chart-axis)' }} hide={!stream} />
           <YAxis tick={{ fontSize: 9, fill: 'var(--chart-axis)' }} />
           <Tooltip
             contentStyle={{
@@ -100,14 +92,7 @@ function TimeSeriesWidget({ widget, stream }: { widget: DashboardWidget; stream?
               color: 'var(--chart-tooltip-fg)',
             }}
           />
-          <Line
-            type="monotone"
-            dataKey="v"
-            stroke={color}
-            strokeWidth={2}
-            dot={false}
-            isAnimationActive={false}
-          />
+          <Line type="monotone" dataKey="v" stroke={color} strokeWidth={1.75} dot={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -136,9 +121,7 @@ function GaugeWidget({ widget, stream }: { widget: DashboardWidget; stream?: Str
           const data = await res.json();
           if (data.lastValue !== undefined && data.lastValue !== null) {
             const numVal = typeof data.lastValue === 'number' ? data.lastValue : parseFloat(String(data.lastValue));
-            if (!isNaN(numVal)) {
-              setManualVal(numVal);
-            }
+            if (!isNaN(numVal)) setManualVal(numVal);
           }
         }
       } catch (e) {
@@ -152,28 +135,36 @@ function GaugeWidget({ widget, stream }: { widget: DashboardWidget; stream?: Str
   }, [widget.streamId, stream]);
 
   return (
-    <div className="h-full flex items-center justify-center">
+    <div className="flex h-full items-center justify-center">
       <div className="text-center">
         <svg width="120" height="80" viewBox="0 0 120 80">
-          <path d="M 15 75 A 50 50 0 0 1 105 75" fill="none" stroke="#e5e7eb" strokeWidth="10" strokeLinecap="round" />
+          <path d="M 15 75 A 50 50 0 0 1 105 75" fill="none" stroke="var(--chart-grid)" strokeWidth="8" strokeLinecap="round" />
           <path
             d="M 15 75 A 50 50 0 0 1 105 75"
             fill="none"
             stroke={color}
-            strokeWidth="10"
+            strokeWidth="8"
             strokeLinecap="round"
             strokeDasharray={`${pct * 157} 157`}
           />
           <line
-            x1="60" y1="75"
+            x1="60"
+            y1="75"
             x2={60 + 35 * Math.cos((angle - 90) * (Math.PI / 180))}
             y2={75 + 35 * Math.sin((angle - 90) * (Math.PI / 180))}
-            stroke={color} strokeWidth="3" strokeLinecap="round"
+            stroke={color}
+            strokeWidth="2.5"
+            strokeLinecap="round"
           />
-          <circle cx="60" cy="75" r="5" fill={color} />
+          <circle cx="60" cy="75" r="4" fill={color} />
         </svg>
-        <p className="text-2xl font-black mt-1" style={{ color }}>{val.toFixed(1)}{unit}</p>
-        <p className="text-[10px] text-gray-400">{min} – {max}</p>
+        <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+          {val.toFixed(1)}
+          <span className="ml-0.5 text-xs text-zinc-500">{unit}</span>
+        </p>
+        <p className="text-[10px] text-zinc-400">
+          {min} – {max}
+        </p>
       </div>
     </div>
   );
@@ -198,9 +189,7 @@ function KpiWidget({ widget, stream }: { widget: DashboardWidget; stream?: Strea
           const data = await res.json();
           if (data.lastValue !== undefined && data.lastValue !== null) {
             const numVal = typeof data.lastValue === 'number' ? data.lastValue : parseFloat(String(data.lastValue));
-            if (!isNaN(numVal)) {
-              setManualVal(numVal);
-            }
+            if (!isNaN(numVal)) setManualVal(numVal);
           }
         }
       } catch (e) {
@@ -214,29 +203,29 @@ function KpiWidget({ widget, stream }: { widget: DashboardWidget; stream?: Strea
   }, [widget.streamId, stream]);
 
   return (
-    <div className="h-full flex flex-col justify-center px-2">
-      <p className="text-3xl font-black text-gray-900 dark:text-white tabular-nums">
+    <div className="flex h-full flex-col justify-center px-2">
+      <p className="text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
         {typeof val === 'number' ? val.toFixed(precision) : String(val)}
-        <span className="text-lg font-semibold text-gray-400 ml-1">{unit}</span>
+        <span className="ml-1 text-sm font-normal text-zinc-400">{unit}</span>
       </p>
       {Boolean(widget.config.trend) && !stream && (
-        <div className={`flex items-center gap-1 mt-1 text-xs font-semibold ${trend >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-          <span>{trend >= 0 ? '▲' : '▼'}</span>
-          <span>{Math.abs(trend).toFixed(1)}% vs last hour</span>
+        <div className={`mt-1 flex items-center gap-1 text-xs font-medium ${trend >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+          {trend >= 0 ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+          <span>{Math.abs(trend).toFixed(1)}% vs última hora</span>
         </div>
       )}
       {stream ? (
-        <p className="text-[10px] text-emerald-500 mt-1 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          Live stream: {stream.label}
+        <p className="mt-1 flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          Stream: {stream.label}
         </p>
       ) : widget.streamId ? (
-        <p className="text-[10px] text-blue-400 mt-1 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-          Polling stream: {widget.streamId.slice(0, 8)}...
+        <p className="mt-1 flex items-center gap-1.5 text-[10px] text-blue-600 dark:text-blue-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+          Stream: {widget.streamId.slice(0, 8)}…
         </p>
       ) : (
-        <p className="text-[10px] text-gray-400 mt-1">No stream connected</p>
+        <p className="mt-1 text-[10px] text-zinc-400">Sin stream conectado</p>
       )}
     </div>
   );
@@ -244,12 +233,17 @@ function KpiWidget({ widget, stream }: { widget: DashboardWidget; stream?: Strea
 
 // ── Bar Chart ──
 function BarChartWidget({ widget }: { widget: DashboardWidget }) {
-  const color = (widget.config.color as string) || '#14b8a6';
-  const data = useMemo(() => [
-    { label: 'Mooring 1', v: 85 }, { label: 'Mooring 2', v: 72 },
-    { label: 'Tower Base', v: 91 }, { label: 'Platform', v: 63 },
-    { label: 'Nacelle', v: 78 },
-  ], []);
+  const color = (widget.config.color as string) || '#2563eb';
+  const data = useMemo(
+    () => [
+      { label: 'Mooring 1', v: 85 },
+      { label: 'Mooring 2', v: 72 },
+      { label: 'Tower Base', v: 91 },
+      { label: 'Platform', v: 63 },
+      { label: 'Nacelle', v: 78 },
+    ],
+    []
+  );
   return (
     <div className="h-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -275,34 +269,38 @@ function BarChartWidget({ widget }: { widget: DashboardWidget }) {
 // ── Sensor Table ──
 function SensorTableWidget() {
   const rows = [
-    { sensor: 'IMU Roll', value: '2.4°', status: 'nominal', ts: '00:01' },
-    { sensor: 'IMU Pitch', value: '1.8°', status: 'nominal', ts: '00:01' },
-    { sensor: 'Mooring T1', value: '1234 kN', status: 'warning', ts: '00:00' },
-    { sensor: 'Tower Stress', value: '45 MPa', status: 'nominal', ts: '00:01' },
-    { sensor: 'Wind Speed', value: '12.3 m/s', status: 'nominal', ts: '00:01' },
-    { sensor: 'Wave Height', value: '2.5 m', status: 'nominal', ts: '00:01' },
+    { sensor: 'IMU Roll', value: '2.4°', status: 'nominal' },
+    { sensor: 'IMU Pitch', value: '1.8°', status: 'nominal' },
+    { sensor: 'Mooring T1', value: '1234 kN', status: 'warning' },
+    { sensor: 'Tower Stress', value: '45 MPa', status: 'nominal' },
+    { sensor: 'Wind Speed', value: '12.3 m/s', status: 'nominal' },
+    { sensor: 'Wave Height', value: '2.5 m', status: 'nominal' },
   ];
   return (
     <div className="h-full overflow-auto">
       <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-white dark:bg-slate-800">
-          <tr className="border-b border-gray-100 dark:border-slate-700">
-            <th className="text-left py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Sensor</th>
-            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Value</th>
-            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Status</th>
+        <thead className="sticky top-0 bg-white dark:bg-zinc-900">
+          <tr className="border-b border-zinc-200 dark:border-zinc-800">
+            <th className="px-2 py-1.5 text-left font-medium text-zinc-500">Sensor</th>
+            <th className="px-2 py-1.5 text-right font-medium text-zinc-500">Valor</th>
+            <th className="px-2 py-1.5 text-right font-medium text-zinc-500">Estado</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-gray-50 dark:border-slate-700/50 hover:bg-gray-50 dark:hover:bg-slate-700/30 transition-colors">
-              <td className="py-1.5 px-2 text-gray-700 dark:text-gray-300">{row.sensor}</td>
-              <td className="py-1.5 px-2 text-right font-mono text-gray-900 dark:text-white font-semibold">{row.value}</td>
-              <td className="py-1.5 px-2 text-right">
-                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
-                  row.status === 'nominal'
-                    ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400'
-                    : 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
-                }`}>
+            <tr key={i} className="border-b border-zinc-100 dark:border-zinc-800/60">
+              <td className="px-2 py-1.5 text-zinc-700 dark:text-zinc-300">{row.sensor}</td>
+              <td className="px-2 py-1.5 text-right font-mono font-medium text-zinc-900 dark:text-zinc-100">
+                {row.value}
+              </td>
+              <td className="px-2 py-1.5 text-right">
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    row.status === 'nominal'
+                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+                      : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400'
+                  }`}
+                >
                   {row.status}
                 </span>
               </td>
@@ -317,28 +315,22 @@ function SensorTableWidget() {
 // ── AI Insights ──
 function AiInsightsWidget() {
   const insights = [
-    { icon: '🔍', text: 'Mooring Line 1 shows early fatigue signatures', severity: 'warning', conf: 87 },
-    { icon: '✅', text: 'Tower vibration within design envelope', severity: 'ok', conf: 96 },
-    { icon: '📈', text: 'Remaining useful life: 18.4 years', severity: 'info', conf: 91 },
-    { icon: '⚠️', text: 'Wave loading exceeded threshold 3x this hour', severity: 'warning', conf: 79 },
+    { icon: 'search', text: 'Mooring Line 1 shows early fatigue signatures', severity: 'warning', conf: 87 },
+    { icon: 'check', text: 'Tower vibration within design envelope', severity: 'ok', conf: 96 },
+    { icon: 'trendingUp', text: 'Remaining useful life: 18.4 years', severity: 'info', conf: 91 },
+    { icon: 'alert', text: 'Wave loading exceeded threshold 3x this hour', severity: 'warning', conf: 79 },
   ];
   return (
-    <div className="h-full overflow-auto space-y-2 pr-1">
+    <div className="h-full space-y-1.5 overflow-auto pr-1">
       {insights.map((ins, i) => (
         <div
           key={i}
-          className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs ${
-            ins.severity === 'warning'
-              ? 'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20'
-              : ins.severity === 'ok'
-              ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/20'
-              : 'bg-blue-50 border-blue-200 dark:bg-blue-500/10 dark:border-blue-500/20'
-          }`}
+          className="flex items-start gap-2.5 rounded-lg border border-zinc-200 p-2.5 text-xs dark:border-zinc-800"
         >
-          <span className="text-base leading-none">{ins.icon}</span>
-          <div className="flex-1 min-w-0">
-            <p className="text-gray-700 dark:text-gray-300 leading-snug">{ins.text}</p>
-            <p className="text-[9px] text-gray-400 mt-0.5">Confidence: {ins.conf}%</p>
+          <Glyph name={ins.icon} size={14} className="mt-0.5 shrink-0 text-zinc-400" />
+          <div className="min-w-0 flex-1">
+            <p className="leading-snug text-zinc-800 dark:text-zinc-200">{ins.text}</p>
+            <p className="mt-0.5 text-[10px] text-zinc-400">Confianza: {ins.conf}%</p>
           </div>
         </div>
       ))}
@@ -349,27 +341,26 @@ function AiInsightsWidget() {
 // ── Map placeholder ──
 function MapWidget() {
   return (
-    <div className="h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-xl overflow-hidden relative">
-      <div className="absolute inset-0 opacity-20">
-        <svg width="100%" height="100%">
-          <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#6366f1" strokeWidth="0.5" />
-          </pattern>
-          <rect width="100%" height="100%" fill="url(#grid)" />
-        </svg>
-      </div>
-      <div className="text-center relative z-10">
-        <p className="text-4xl">🗺️</p>
-        <p className="text-xs font-semibold text-gray-500 mt-2">Map Widget</p>
-        <p className="text-[10px] text-gray-400 mt-0.5">56.0°N · 3.5°E</p>
-        <div className="mt-2 w-3 h-3 rounded-full bg-blue-500 mx-auto animate-pulse ring-4 ring-blue-500/20" />
+    <div className="relative flex h-full items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="text-center">
+        <MapPin className="mx-auto h-5 w-5 text-zinc-400" strokeWidth={1.75} />
+        <p className="mt-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">Mapa geográfico</p>
+        <p className="mt-0.5 font-mono text-[10px] text-zinc-400">56.0°N · 3.5°E</p>
       </div>
     </div>
   );
 }
 
 // ── 3D Model Renderer ──
-function GLTFModel({ url, hiddenMeshes, onMeshesLoaded }: { url: string, hiddenMeshes: Set<string>, onMeshesLoaded: (meshes: string[]) => void }) {
+function GLTFModel({
+  url,
+  hiddenMeshes,
+  onMeshesLoaded,
+}: {
+  url: string;
+  hiddenMeshes: Set<string>;
+  onMeshesLoaded: (meshes: string[]) => void;
+}) {
   const { scene } = useGLTF(url);
   const clonedScene = useMemo(() => {
     try {
@@ -413,7 +404,7 @@ function Model3DWidget({ widget }: { widget: DashboardWidget }) {
   const [showPanel, setShowPanel] = useState(false);
 
   const handleMeshesLoaded = useCallback((names: string[]) => {
-    setMeshNames(Array.from(new Set(names)).sort()); // Remove duplicates and sort
+    setMeshNames(Array.from(new Set(names)).sort());
   }, []);
 
   const toggleMesh = (name: string) => {
@@ -426,28 +417,24 @@ function Model3DWidget({ widget }: { widget: DashboardWidget }) {
   };
 
   const toggleAll = (hide: boolean) => {
-    if (hide) {
-      setHiddenMeshes(new Set(meshNames));
-    } else {
-      setHiddenMeshes(new Set());
-    }
+    if (hide) setHiddenMeshes(new Set(meshNames));
+    else setHiddenMeshes(new Set());
   };
 
   if (!scenePath) {
     return (
-      <div className="h-full flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl overflow-hidden relative">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(59,130,246,0.1),_transparent_70%)]" />
-        <div className="text-center">
-          <p className="text-5xl animate-[spin_8s_linear_infinite]">🎨</p>
-          <p className="text-xs font-semibold text-white/70 mt-3">No Model Loaded</p>
-          <p className="text-[10px] text-white/40 mt-0.5">Edit widget to upload a .glb/.gltf file</p>
+      <div className="flex h-full items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 text-center">
+        <div>
+          <Box className="mx-auto h-5 w-5 text-zinc-500" strokeWidth={1.75} />
+          <p className="mt-1.5 text-xs font-medium text-zinc-300">Sin modelo 3D</p>
+          <p className="mt-0.5 text-[10px] text-zinc-500">Edita el widget para cargar un archivo .glb</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full w-full bg-slate-900 rounded-xl overflow-hidden font-sans relative">
+    <div className="relative h-full w-full overflow-hidden rounded-lg bg-zinc-950 font-sans">
       <Canvas shadows camera={{ position: [0, 2, 5], fov: 45 }}>
         <Suspense fallback={null}>
           <Stage environment="city" intensity={0.5}>
@@ -456,45 +443,67 @@ function Model3DWidget({ widget }: { widget: DashboardWidget }) {
         </Suspense>
         <OrbitControls autoRotate={!!autoRotate} makeDefault />
       </Canvas>
-      
-      {/* Top Left Indicators */}
-      <div className="absolute top-2 left-2 flex gap-2 z-10 pointer-events-none">
-        <span className="px-2 py-1 bg-black/50 backdrop-blur-md rounded border border-white/10 text-[9px] font-bold tracking-widest text-white/70 uppercase">Live 3D Model</span>
+
+      <div className="pointer-events-none absolute left-2 top-2 z-10 flex gap-2">
+        <span className="rounded border border-zinc-800 bg-zinc-900/90 px-2 py-0.5 text-[10px] font-medium text-zinc-300">
+          Modelo 3D
+        </span>
       </div>
 
-      {/* Components Panel Overlay */}
-      <div className={`absolute top-2 right-2 flex flex-col items-end z-10 pointer-events-none transition-all ${showPanel ? 'w-48 max-h-[calc(100%-16px)]' : 'w-auto'}`}>
+      <div
+        className={`pointer-events-none absolute right-2 top-2 z-10 flex flex-col items-end ${
+          showPanel ? 'max-h-[calc(100%-16px)] w-48' : 'w-auto'
+        }`}
+      >
         <button
-          onClick={(e) => { e.stopPropagation(); setShowPanel(!showPanel); }}
-          className="pointer-events-auto flex items-center justify-center w-7 h-7 bg-black/50 hover:bg-black/70 backdrop-blur-md border border-white/10 rounded-lg text-white/80 hover:text-white transition-all shadow-xl"
-          title="Component Layers"
+          onClick={e => {
+            e.stopPropagation();
+            setShowPanel(!showPanel);
+          }}
+          className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900/90 text-zinc-300 hover:text-white"
+          title="Capas del modelo"
         >
-          <Layers className="w-4 h-4" />
+          <Layers className="h-3.5 w-3.5" />
         </button>
 
         {showPanel && meshNames.length > 0 && (
-          <div className="pointer-events-auto mt-2 w-full bg-black/60 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex flex-col max-h-[calc(100vh-100px)] overflow-hidden">
-            <div className="p-2 border-b border-white/10 flex items-center justify-between shrink-0 bg-white/5">
-              <span className="text-[10px] font-bold text-white/90 uppercase tracking-widest">Components</span>
+          <div className="pointer-events-auto mt-1.5 flex max-h-[calc(100vh-100px)] w-full flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900">
+            <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-2 py-1.5">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">Capas</span>
               <div className="flex gap-1">
-                <button onClick={() => toggleAll(false)} className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[9px] text-white/80 transition-all font-semibold">ALL</button>
-                <button onClick={() => toggleAll(true)} className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[9px] text-white/80 transition-all font-semibold">NONE</button>
+                <button
+                  onClick={() => toggleAll(false)}
+                  className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-medium text-zinc-300 hover:bg-zinc-700"
+                >
+                  Todas
+                </button>
+                <button
+                  onClick={() => toggleAll(true)}
+                  className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-medium text-zinc-300 hover:bg-zinc-700"
+                >
+                  Ninguna
+                </button>
               </div>
             </div>
-            <div className="overflow-y-auto custom-scrollbar p-1 flex-1 min-h-0">
+            <div className="min-h-0 flex-1 overflow-y-auto p-1 custom-scrollbar">
               {meshNames.map(name => {
                 const isHidden = hiddenMeshes.has(name);
                 return (
                   <button
                     key={name}
                     onClick={() => toggleMesh(name)}
-                    className="w-full flex items-center justify-between p-1.5 hover:bg-white/10 rounded text-left transition-all group"
+                    className="flex w-full items-center justify-between rounded p-1.5 text-left hover:bg-zinc-800"
                   >
-                    <span className={`text-[10px] truncate max-w-[120px] transition-colors ${isHidden ? 'text-white/40 line-through' : 'text-white/90 font-medium'}`} title={name}>
+                    <span
+                      className={`max-w-[120px] truncate text-[10px] ${
+                        isHidden ? 'text-zinc-500 line-through' : 'font-medium text-zinc-200'
+                      }`}
+                      title={name}
+                    >
                       {name}
                     </span>
-                    <span className="shrink-0 text-white/40 group-hover:text-white/80">
-                      {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    <span className="shrink-0 text-zinc-400">
+                      {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </span>
                   </button>
                 );
@@ -507,29 +516,33 @@ function Model3DWidget({ widget }: { widget: DashboardWidget }) {
   );
 }
 
-// ── Main renderer ──
 export default function WidgetRenderer({ widget, stream }: WidgetRendererProps) {
   const renderContent = () => {
     switch (widget.type) {
-      case 'timeseries': return <TimeSeriesWidget widget={widget} stream={stream} />;
-      case 'gauge': return <GaugeWidget widget={widget} />;
-      case 'kpi': return <KpiWidget widget={widget} stream={stream} />;
-      case 'bar_chart': return <BarChartWidget widget={widget} />;
-      case 'sensor_table': return <SensorTableWidget />;
-      case 'ai_insights': return <AiInsightsWidget />;
-      case 'map': return <MapWidget />;
-      case 'model3d': return <Model3DWidget widget={widget} />;
-      default: return (
-        <div className="h-full flex items-center justify-center text-gray-400 text-xs">
-          Unknown widget type: {widget.type}
-        </div>
-      );
+      case 'timeseries':
+        return <TimeSeriesWidget widget={widget} stream={stream} />;
+      case 'gauge':
+        return <GaugeWidget widget={widget} />;
+      case 'kpi':
+        return <KpiWidget widget={widget} stream={stream} />;
+      case 'bar_chart':
+        return <BarChartWidget widget={widget} />;
+      case 'sensor_table':
+        return <SensorTableWidget />;
+      case 'ai_insights':
+        return <AiInsightsWidget />;
+      case 'map':
+        return <MapWidget />;
+      case 'model3d':
+        return <Model3DWidget widget={widget} />;
+      default:
+        return (
+          <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+            Tipo de widget desconocido: {widget.type}
+          </div>
+        );
     }
   };
 
-  return (
-    <div className="h-full w-full overflow-hidden">
-      {renderContent()}
-    </div>
-  );
+  return <div className="h-full w-full overflow-hidden">{renderContent()}</div>;
 }
