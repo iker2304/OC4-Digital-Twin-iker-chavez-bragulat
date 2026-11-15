@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
+import { API_BASE_URL, WS_BASE_URL } from '../config/api';
 
 // ========== Node Type Definitions ==========
 export type NodeCategory = 'data' | 'processing' | 'communication' | 'visualization' | 'ai' | 'control';
@@ -111,7 +112,7 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
         outputs: [
             { label: 'Data', type: 'output', dataType: 'json' },
         ],
-        defaultConfig: { url: 'ws://localhost:8080/ws/realtime', reconnect: true },
+        defaultConfig: { url: `${WS_BASE_URL}/ws/realtime`, reconnect: true },
     },
     // CODE nodes
     {
@@ -454,7 +455,7 @@ function getAllPipelines(): Pipeline[] {
 
 function saveAllPipelines(pipelines: Pipeline[]) {
     localStorage.setItem(PIPELINES_KEY, JSON.stringify(pipelines));
-    fetch('http://localhost:8080/persist/pipelines', {
+    fetch(`${API_BASE_URL}/persist/pipelines`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pipelines)
@@ -472,7 +473,7 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
 
     loadPipelines: async (userId: string) => {
         try {
-            const res = await fetch('http://localhost:8080/persist/pipelines');
+            const res = await fetch(`${API_BASE_URL}/persist/pipelines`);
             if (res.ok) {
                 const backendPipelines = await res.json();
                 if (backendPipelines && Array.isArray(backendPipelines) && backendPipelines.length > 0) {

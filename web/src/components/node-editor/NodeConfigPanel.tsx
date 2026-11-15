@@ -2,6 +2,7 @@ import { X, Info, Upload, CheckCircle, AlertCircle, Loader, Camera, RefreshCw } 
 import { useNodeEditorStore, CATEGORY_META } from '../../store/nodeEditorStore';
 import { useState } from 'react';
 import type { Node } from '@xyflow/react';
+import { API_BASE_URL } from '../../config/api';
 
 interface NodeConfigPanelProps {
   node: Node;
@@ -152,7 +153,7 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
                         onClick={async () => {
                           setCamerasLoading(true);
                           try {
-                            const res = await fetch('http://localhost:8080/api/flow/cameras');
+                            const res = await fetch(`${API_BASE_URL}/api/flow/cameras`);
                             if (res.ok) {
                               const d = await res.json();
                               setCameras(d.cameras || []);
@@ -261,7 +262,7 @@ export default function NodeConfigPanel({ node, onClose }: NodeConfigPanelProps)
                           try {
                             const formData = new FormData();
                             formData.append('file', file);
-                            const response = await fetch('http://localhost:8080/api/flow/upload', {
+                            const response = await fetch(`${API_BASE_URL}/api/flow/upload`, {
                               method: 'POST',
                               body: formData,
                             });

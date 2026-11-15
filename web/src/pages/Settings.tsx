@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTwinStore } from '../store/twinStore';
 import { QRCodeSVG } from 'qrcode.react';
+import { API_BASE_URL } from '../config/api';
 
 type CameraMode = 'device' | 'rtsp' | 'mobile';
 type ThemeMode = 'dark' | 'light';
@@ -66,7 +67,7 @@ export default function Settings() {
     const loadCameras = async () => {
       setCameraScanStatus('loading');
       try {
-        const res = await fetch('http://localhost:8080/cameras?max_index=10');
+        const res = await fetch(`${API_BASE_URL}/cameras?max_index=10`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as { cameras: Array<{ index: number; status: 'available' | 'unavailable' | 'unknown' }> };
         if (cancelled) return;
@@ -253,7 +254,7 @@ export default function Settings() {
             onClick={async () => {
               setCameraScanStatus('loading');
               try {
-                const res = await fetch('http://localhost:8080/cameras?max_index=10');
+                const res = await fetch(`${API_BASE_URL}/cameras?max_index=10`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = (await res.json()) as { cameras: Array<{ index: number; status: 'available' | 'unavailable' | 'unknown' }> };
                 setAvailableCameras(data.cameras);
@@ -276,7 +277,7 @@ export default function Settings() {
 
         {cameraScanStatus === 'error' ? (
           <div className="mt-2 text-xs text-red-300">
-            Could not load camera list from backend. Make sure `backend` is running on `http://localhost:8080`.
+            Could not load camera list from backend. Make sure `backend` is running on `${API_BASE_URL}`.
           </div>
         ) : null}
 

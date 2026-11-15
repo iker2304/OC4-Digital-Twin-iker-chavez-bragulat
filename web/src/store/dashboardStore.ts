@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
+import { API_BASE_URL } from '../config/api';
 
 // Local layout item type (avoids react-grid-layout @types issues)
 export type LayoutItem = { i: string; x: number; y: number; w: number; h: number; minW?: number; minH?: number };
@@ -191,7 +192,7 @@ function getAllDashboards(): Dashboard[] {
 
 function saveAllDashboards(dbs: Dashboard[]) {
   localStorage.setItem(DASHBOARDS_KEY, JSON.stringify(dbs));
-  fetch('http://localhost:8080/persist/dashboards', {
+  fetch(`${API_BASE_URL}/persist/dashboards`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(dbs),
@@ -207,7 +208,7 @@ function getAllStreams(): StreamDefinition[] {
 
 function saveAllStreams(streams: StreamDefinition[]) {
   localStorage.setItem(STREAMS_KEY, JSON.stringify(streams));
-  fetch('http://localhost:8080/persist/streams', {
+  fetch(`${API_BASE_URL}/persist/streams`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(streams),
@@ -222,7 +223,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
   loadDashboards: async (userId, profileId) => {
     // Load dashboards
     try {
-      const res = await fetch('http://localhost:8080/persist/dashboards');
+      const res = await fetch(`${API_BASE_URL}/persist/dashboards`);
       if (res.ok) {
         const backendDbs = await res.json();
         if (backendDbs && Array.isArray(backendDbs) && backendDbs.length > 0) {
@@ -233,7 +234,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
 
     // Load streams
     try {
-      const res = await fetch('http://localhost:8080/persist/streams');
+      const res = await fetch(`${API_BASE_URL}/persist/streams`);
       if (res.ok) {
         const backendStreams = await res.json();
         if (backendStreams && Array.isArray(backendStreams)) {
@@ -437,7 +438,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
       ),
     }));
 
-    fetch(`http://localhost:8080/persist/stream-values/${streamId}`, {
+    fetch(`${API_BASE_URL}/persist/stream-values/${streamId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lastValue: value, updatedAt: new Date().toISOString() }),
@@ -478,7 +479,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
   startStreamPolling: () => {
     const poll = async () => {
       try {
-        const res = await fetch('http://localhost:8080/persist/stream-values');
+        const res = await fetch(`${API_BASE_URL}/persist/stream-values`);
         if (res.ok) {
           const allValues: Record<string, { lastValue: unknown; updatedAt: number | string }> = await res.json();
           const streams = get().streams;

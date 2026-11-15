@@ -10,6 +10,7 @@ from app.api.flow_router import router as flow_router
 from app.api.sse import router as sse_router
 from app.api.mqtt_router import router as mqtt_router
 from app.api.fem import router as fem_router
+from app.api.training import router as training_router
 
 app = FastAPI()
 
@@ -31,3 +32,4 @@ app.include_router(flow_router, prefix="/api/flow", tags=["flow"])
 app.include_router(sse_router, prefix="/api", tags=["sse"])
 app.include_router(mqtt_router, prefix="/api/mqtt", tags=["mqtt"])
 app.include_router(fem_router, prefix="/api/fem", tags=["fem"])
+app.include_router(training_router, prefix="/api/training", tags=["training"])

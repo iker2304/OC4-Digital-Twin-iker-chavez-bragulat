@@ -36,11 +36,12 @@ import {
   computeHarmonicOscillation, applyVerticesToGeometry
 } from '../../lib/femUtils';
 import { SpectrumChart } from './SpectrumChart';
+import { WS_BASE_URL } from '../../config/api';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MODEL_URL = '/models/OC4.glb';
-const WS_URL = 'ws://localhost:8080/api/fem/modal-filtered-ws';
+const WS_URL = `${WS_BASE_URL}/api/fem/modal-filtered-ws`;
 
 // ── ModalMeshController — Three.js inner component ────────────────────────────
 /**

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Camera, CheckCircle2, Loader2, VideoOff } from 'lucide-react';
 import { useTwinStore } from '../../store/twinStore';
+import { API_BASE_URL } from '../../config/api';
 
-const BACKEND_BASE = 'http://localhost:8080';
+const BACKEND_BASE = API_BASE_URL;
 
 type CameraStatus = 'available' | 'unavailable' | 'unknown';
 const availableCameras = [0, 1, 2, 3, 4];

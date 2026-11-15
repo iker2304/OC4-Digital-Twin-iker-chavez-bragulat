@@ -14,6 +14,7 @@ import LoginPage from './pages/LoginPage';
 import ProfilesPage from './pages/ProfilesPage';
 import ProfileDetailPage from './pages/ProfileDetailPage';
 import FEMPage from './pages/FEMPage';
+import { TrainingPage } from './pages/TrainingPage';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -56,10 +57,11 @@ function App() {
                 <Route path="/shm" element={<SHMPage />} />
                 <Route path="/profiles" element={<ProfilesPage />} />
                 <Route path="/profiles/:profileId" element={<ProfileDetailPage />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/grafana" element={<Grafana />} />
+                <Route path="/training" element={<TrainingPage />} />
                 <Route path="/dataset" element={<DatasetGeneration />} />
                 <Route path="/fem" element={<FEMPage />} />
+                <Route path="/grafana" element={<Grafana />} />
+                <Route path="/settings" element={<Settings />} />
               </Routes>
             </DashboardLayout>
           </AuthGuard>

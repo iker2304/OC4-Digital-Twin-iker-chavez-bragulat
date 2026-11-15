@@ -16,6 +16,7 @@
  */
 import { create } from 'zustand';
 import type { ViewMode, FemModeShapeData, FftSpectrum, ModalFilteredMessage } from '../types';
+import { API_BASE_URL } from '../config/api';
 
 // ── FEM modal frequency catalogue (matches backend _FEM_MODAL_FREQUENCIES) ────
 // Used to reconstruct frequencies for modes not yet in the received spectrum.
@@ -115,8 +116,8 @@ export const useModalStore = create<ModalStore>((set, get) => ({
     try {
       // Fetch mode shapes (autovectors Φ_FEM)
       const [shapesRes, meshRes] = await Promise.all([
-        fetch('http://localhost:8080/api/fem/modal-shapes'),
-        fetch('http://localhost:8080/api/fem/modal-mesh'),
+        fetch(`${API_BASE_URL}/api/fem/modal-shapes`),
+        fetch(`${API_BASE_URL}/api/fem/modal-mesh`),
       ]);
 
       if (!shapesRes.ok) throw new Error(`modal-shapes: HTTP ${shapesRes.status}`);

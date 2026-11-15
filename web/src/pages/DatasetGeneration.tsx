@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import DatasetViewer from '../components/DatasetViewer';
+import { API_BASE_URL } from '../config/api';
 
 type FieldSchema = {
   name: string;
@@ -117,6 +118,44 @@ export default function DatasetGeneration() {
   const [profileName, setProfileName] = useState('');
   const [showViewer, setShowViewer] = useState(false);
 
+  // Multi-dataset & YAML config management
+  const [datasetsList, setDatasetsList] = useState<Array<{
+    name: string;
+    trainImages: number;
+    valImages: number;
+    rawImages: number;
+    totalImages: number;
+  }>>([]);
+  const [activeDatasetName, setActiveDatasetName] = useState<string>('Floating platform.v1i.yolov11');
+  const [newDatasetName, setNewDatasetName] = useState<string>('');
+  const [newDatasetKeypoints, setNewDatasetKeypoints] = useState<number>(11);
+  const [yamlConfigs, setYamlConfigs] = useState<Record<string, any>>({});
+  const [selectedYamlTab, setSelectedYamlTab] = useState<string>('annotation.yaml');
+  const [yamlText, setYamlText] = useState<string>('');
+  const [yamlSaveMsg, setYamlSaveMsg] = useState<string | null>(null);
+
+  const fetchDatasetsAndYaml = async () => {
+    try {
+      const [dsRes, cfgRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/dataset/list`),
+        fetch(`${API_BASE_URL}/dataset/configs`),
+      ]);
+      if (dsRes.ok) {
+        const d = await dsRes.json();
+        setDatasetsList(d.datasets || []);
+      }
+      if (cfgRes.ok) {
+        const c = await cfgRes.json();
+        setYamlConfigs(c || {});
+        if (c && c['annotation.yaml'] && !yamlText) {
+          setYamlText(JSON.stringify(c['annotation.yaml'], null, 2));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const distributionData = useMemo(
     () =>
       Object.entries(status?.distribution || {}).map(([key, value]) => ({
@@ -176,7 +215,7 @@ export default function DatasetGeneration() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('http://localhost:8080/dataset/status');
+      const res = await fetch(`${API_BASE_URL}/dataset/status`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as DatasetStatus;
       setStatus(data);
@@ -197,9 +236,87 @@ export default function DatasetGeneration() {
 
   useEffect(() => {
     fetchStatus();
+    fetchDatasetsAndYaml();
     const intervalId = window.setInterval(fetchStatus, 1000);
     return () => window.clearInterval(intervalId);
   }, []);
+
+  const handleCreateDataset = async () => {
+    if (!newDatasetName.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/dataset/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newDatasetName.trim(),
+          keypointsCount: newDatasetKeypoints,
+          numTrain: 16,
+          numVal: 4,
+        }),
+      });
+      if (res.ok) {
+        setActiveDatasetName(newDatasetName.trim());
+        setNewDatasetName('');
+        fetchDatasetsAndYaml();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleQuickGenerateSamples = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/dataset/generate-samples`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataset: activeDatasetName,
+          numTrain: 12,
+          numVal: 4,
+          keypointsCount: newDatasetKeypoints,
+        }),
+      });
+      fetchDatasetsAndYaml();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleQuickSplit = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/dataset/split`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataset: activeDatasetName, trainRatio: 0.8 }),
+      });
+      fetchDatasetsAndYaml();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSelectYamlTab = (tab: string) => {
+    setSelectedYamlTab(tab);
+    setYamlText(JSON.stringify(yamlConfigs[tab] || {}, null, 2));
+  };
+
+  const handleSaveYamlConfig = async () => {
+    try {
+      const parsed = JSON.parse(yamlText);
+      const res = await fetch(`${API_BASE_URL}/dataset/configs/${selectedYamlTab}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: parsed }),
+      });
+      if (res.ok) {
+        setYamlSaveMsg(`Guardado ${selectedYamlTab} correctamente`);
+        fetchDatasetsAndYaml();
+        setTimeout(() => setYamlSaveMsg(null), 3000);
+      }
+    } catch (err) {
+      setYamlSaveMsg('Error: JSON inválido');
+    }
+  };
 
   useEffect(() => {
     if (recordsPerSecond === null) return;
@@ -216,7 +333,7 @@ export default function DatasetGeneration() {
       return;
     }
     try {
-      const res = await fetch('http://localhost:8080/dataset/start', {
+      const res = await fetch(`${API_BASE_URL}/dataset/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -239,7 +356,7 @@ export default function DatasetGeneration() {
 
   const pauseGeneration = async () => {
     try {
-      const res = await fetch('http://localhost:8080/dataset/pause', { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/dataset/pause`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       fetchStatus();
     } catch (err) {
@@ -249,7 +366,7 @@ export default function DatasetGeneration() {
 
   const resumeGeneration = async () => {
     try {
-      const res = await fetch('http://localhost:8080/dataset/resume', { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/dataset/resume`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       fetchStatus();
     } catch (err) {
@@ -261,7 +378,7 @@ export default function DatasetGeneration() {
     const confirmed = window.confirm('¿Seguro que deseas detener la generación?');
     if (!confirmed) return;
     try {
-      const res = await fetch('http://localhost:8080/dataset/stop', { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/dataset/stop`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       fetchStatus();
     } catch (err) {
@@ -292,7 +409,7 @@ export default function DatasetGeneration() {
 
   const exportReport = async () => {
     try {
-      const res = await fetch('http://localhost:8080/dataset/report');
+      const res = await fetch(`${API_BASE_URL}/dataset/report`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -333,6 +450,78 @@ export default function DatasetGeneration() {
 
   return (
     <div className="space-y-6">
+      {/* Multi-Dataset Manager Header */}
+      <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold">Gestor Multi-Dataset de Visión Artificial (YOLO Pose & BBox)</h2>
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              Crea colecciones de datos para distintos Gemelos Digitales, genera poses sintéticas, divide Train/Val y edita etiquetas.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={activeDatasetName}
+              onChange={(e) => setActiveDatasetName(e.target.value)}
+              className="px-3 py-2 rounded border border-gray-200 text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+            >
+              {datasetsList.map((d) => (
+                <option key={d.name} value={d.name}>
+                  {d.name} ({d.trainImages} train / {d.valImages} val)
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleQuickGenerateSamples}
+              className="px-3 py-2 rounded bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold"
+            >
+              + Generar Muestras Pose
+            </button>
+            <button
+              onClick={handleQuickSplit}
+              className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+            >
+              Split Train/Val (80/20)
+            </button>
+            <button
+              onClick={() => setShowViewer(true)}
+              className="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
+            >
+              Abrir Explorador y Editor
+            </button>
+          </div>
+        </div>
+
+        {/* Create New Dataset Row */}
+        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-slate-700 flex flex-wrap items-center gap-3">
+          <span className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase">Crear Nuevo Dataset:</span>
+          <input
+            type="text"
+            value={newDatasetName}
+            onChange={(e) => setNewDatasetName(e.target.value)}
+            placeholder="Nombre (ej. RobotArm_Pose_v1, Bridge_SHM_v1)..."
+            className="px-3 py-1.5 rounded border border-gray-200 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-white min-w-[240px]"
+          />
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-gray-500 dark:text-slate-400">Keypoints:</span>
+            <input
+              type="number"
+              min={1}
+              max={64}
+              value={newDatasetKeypoints}
+              onChange={(e) => setNewDatasetKeypoints(Number(e.target.value))}
+              className="w-16 px-2 py-1.5 rounded border border-gray-200 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+            />
+          </div>
+          <button
+            onClick={handleCreateDataset}
+            className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+          >
+            Crear Dataset con Muestras Iniciales
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 space-y-6">
           <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
@@ -816,7 +1005,57 @@ export default function DatasetGeneration() {
           </>
         )}
       </div>
-      {showViewer && <DatasetViewer onClose={() => setShowViewer(false)} />}
+
+      {/* YAML Config Editor (blender.yaml, annotation.yaml, randomization.yaml, main.yaml) */}
+      <div className="bg-white p-5 rounded-lg shadow-lg border border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-lg font-bold">Configuración Avanzada del Pipeline (src/config/*.yaml)</h3>
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              Personaliza las escenas Blender, objetos y keypoints de anotación, o parámetros de randomización.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {['annotation.yaml', 'blender.yaml', 'randomization.yaml', 'main.yaml'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => handleSelectYamlTab(tab)}
+                className={`px-3 py-1.5 rounded text-xs font-mono font-semibold transition-colors ${
+                  selectedYamlTab === tab
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+            <button
+              onClick={handleSaveYamlConfig}
+              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+            >
+              Guardar {selectedYamlTab}
+            </button>
+          </div>
+        </div>
+        {yamlSaveMsg && (
+          <div className="mb-3 text-xs px-3 py-1.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            {yamlSaveMsg}
+          </div>
+        )}
+        <textarea
+          value={yamlText}
+          onChange={(e) => setYamlText(e.target.value)}
+          rows={10}
+          className="w-full font-mono text-xs p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-200"
+        />
+      </div>
+
+      {showViewer && (
+        <DatasetViewer
+          onClose={() => setShowViewer(false)}
+          initialDataset={activeDatasetName}
+        />
+      )}
     </div>
   );
 }

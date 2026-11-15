@@ -7,6 +7,7 @@ import {
   Tooltip, CartesianGrid,
 } from 'recharts';
 import type { DashboardWidget, StreamDefinition } from '../../../store/dashboardStore';
+import { API_BASE_URL } from '../../../config/api';
 
 interface WidgetRendererProps {
   widget: DashboardWidget;
@@ -52,7 +53,7 @@ function TimeSeriesWidget({ widget, stream }: { widget: DashboardWidget; stream?
 
     const pollManualStream = async () => {
       try {
-        const res = await fetch(`http://localhost:8080/persist/stream-values/${widget.streamId}`);
+        const res = await fetch(`${API_BASE_URL}/persist/stream-values/${widget.streamId}`);
         if (res.ok) {
           const val = await res.json();
           if (val.lastValue !== undefined && val.lastValue !== null) {
@@ -130,7 +131,7 @@ function GaugeWidget({ widget, stream }: { widget: DashboardWidget; stream?: Str
 
     const pollManualStream = async () => {
       try {
-        const res = await fetch(`http://localhost:8080/persist/stream-values/${widget.streamId}`);
+        const res = await fetch(`${API_BASE_URL}/persist/stream-values/${widget.streamId}`);
         if (res.ok) {
           const data = await res.json();
           if (data.lastValue !== undefined && data.lastValue !== null) {
@@ -192,7 +193,7 @@ function KpiWidget({ widget, stream }: { widget: DashboardWidget; stream?: Strea
 
     const pollManualStream = async () => {
       try {
-        const res = await fetch(`http://localhost:8080/persist/stream-values/${widget.streamId}`);
+        const res = await fetch(`${API_BASE_URL}/persist/stream-values/${widget.streamId}`);
         if (res.ok) {
           const data = await res.json();
           if (data.lastValue !== undefined && data.lastValue !== null) {

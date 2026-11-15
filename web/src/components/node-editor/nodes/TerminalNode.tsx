@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { X, Settings2, Terminal, Trash2, Pause, Play } from 'lucide-react';
 import { useNodeEditorStore } from '../../../store/nodeEditorStore';
+import { API_BASE_URL } from '../../../config/api';
 
 interface TerminalNodeData {
   type: string;
@@ -28,7 +29,7 @@ interface TerminalLine {
   isJson?: boolean;
 }
 
-const BASE_URL = 'http://localhost:8080';
+const BASE_URL = API_BASE_URL;
 
 let _lineId = 0;
 const nextId = () => ++_lineId;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { API_BASE_URL, WS_BASE_URL } from '../config/api';
 
 // ── Turbo colormap LUT ────────────────────────────────────────────────────────
 const TURBO_LUT = (() => {
@@ -89,7 +90,7 @@ interface LoadCase {
 }
 
 const ZERO_LOADS: LoadCase = { Fx: 0, Fy: 0, Fz: 0, Mx: 0, My: 0, Mz: 0, node_forces: {}, source: 'manual' };
-const BACKEND_WS = 'ws://localhost:8080';
+const BACKEND_WS = WS_BASE_URL;
 
 // ── Modal superposition ───────────────────────────────────────────────────────
 function computeModalSuperposition(resData: ResData, vorderIds: number[], loads: LoadCase): Float32Array {
@@ -791,7 +792,7 @@ export default function FEMPage() {
 
     // Launch signal_processing.py on the backend
     try {
-      await fetch('http://localhost:8080/api/fem/live-scripts/start', { method: 'POST' });
+      await fetch(`${API_BASE_URL}/api/fem/live-scripts/start`, { method: 'POST' });
     } catch { /* non-fatal: backend may already have it running or be unreachable */ }
 
     // Show the FEM mesh so the coloring is visible
@@ -827,7 +828,7 @@ export default function FEMPage() {
 
     // Stop signal_processing.py
     try {
-      await fetch('http://localhost:8080/api/fem/live-scripts/stop', { method: 'POST' });
+      await fetch(`${API_BASE_URL}/api/fem/live-scripts/stop`, { method: 'POST' });
     } catch { /* non-fatal */ }
   }, [applyLiveModal]);
 

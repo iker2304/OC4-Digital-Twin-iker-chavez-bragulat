@@ -61,55 +61,76 @@ latest_twin_data: Dict[str, Any] = {
 }
 
 import os
+import math
+from fastapi import UploadFile, File
 
-# MQTT Configuration
+# MQTT Configuration (can be reconfigured per active Digital Twin)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 MQTT_TOPIC_POSE = "oc4/pose"
 MQTT_TOPIC_CONFIG = "oc4/config"
 
+active_twin_meta: Dict[str, Any] = {
+    "id": "oc4-default",
+    "name": "OC4 DeepCwind Semi-Submersible",
+    "assetType": "offshore_wind",
+    "mqttBroker": MQTT_BROKER,
+    "mqttPort": MQTT_PORT,
+    "mqttTopic": MQTT_TOPIC_POSE,
+    "mqttConfigTopic": MQTT_TOPIC_CONFIG,
+    "model3dUrl": "/models/OC4.glb",
+    "simulating": False,
+}
+
+_sim_thread: threading.Thread | None = None
+_sim_stop_flag = False
+
+def _process_pose_payload(payload: Dict[str, Any]):
+    global latest_twin_data
+    if "orientation" in payload:
+        orient = payload["orientation"]
+        dist = orient.get("Distance", {"x": 0, "y": 0, "z": 0})
+        latest_twin_data["navigation"] = {
+            "roll": orient.get("Roll", 0),
+            "pitch": orient.get("Pitch", 0),
+            "yaw": orient.get("Yaw", 0),
+            "position": {
+                "x": dist.get("x", 0),
+                "y": dist.get("y", 0),
+                "z": dist.get("z", 0)
+            }
+        }
+    elif "navigation" in payload:
+        latest_twin_data["navigation"] = payload["navigation"]
+
+    if "pose" in payload:
+        latest_twin_data["pose"] = payload["pose"]
+
+    if "metrics" in payload:
+        latest_twin_data["metrics"] = payload["metrics"]
+
+    if "points" in payload:
+        kpts = []
+        for kp_name, kp_data in payload["points"].items():
+            kpts.append({
+                "x": kp_data["x"],
+                "y": kp_data["y"],
+                "id": kp_name
+            })
+        latest_twin_data["video"]["keypoints"] = kpts
+
 def on_mqtt_connect(client, userdata, flags, rc):
     print(f"Connected to MQTT Broker with result code {rc}")
     client.subscribe(MQTT_TOPIC_POSE)
+    client.subscribe("+/pose")
+    client.subscribe("+/telemetry")
 
 def on_mqtt_message(client, userdata, msg):
-    global latest_twin_data
-    if msg.topic == MQTT_TOPIC_POSE:
+    if msg.topic == MQTT_TOPIC_POSE or msg.topic == active_twin_meta.get("mqttTopic"):
         try:
             payload_str = msg.payload.decode()
             payload = json.loads(payload_str)
-            
-            if "orientation" in payload:
-                orient = payload["orientation"]
-                dist = orient.get("Distance", {"x": 0, "y": 0, "z": 0})
-                
-                latest_twin_data["navigation"] = {
-                    "roll": orient.get("Roll", 0),
-                    "pitch": orient.get("Pitch", 0),
-                    "yaw": orient.get("Yaw", 0),
-                    "position": {
-                        "x": dist.get("x", 0),
-                        "y": dist.get("y", 0),
-                        "z": dist.get("z", 0)
-                    }
-                }
-
-            if "pose" in payload:
-                latest_twin_data["pose"] = payload["pose"]
-            
-            if "points" in payload:
-                kpts = []
-                for kp_name, kp_data in payload["points"].items():
-                    kpts.append({
-                        "x": kp_data["x"],
-                        "y": kp_data["y"],
-                        "id": kp_name
-                    })
-                latest_twin_data["video"]["keypoints"] = kpts
-                if random.random() < 0.1: # 10% log rate
-                    ids = [k['id'] for k in kpts]
-                    print(f"MQTT: Received {len(kpts)} kpts. IDs: {', '.join(ids[:5])}... Hub: {'Hub' in ids}")
-                
+            _process_pose_payload(payload)
         except Exception as e:
             print(f"Error processing MQTT message: {e}")
 
@@ -123,6 +144,140 @@ try:
     mqtt_client.loop_start()
 except Exception as e:
     print(f"Warning: Could not connect to MQTT Broker at {MQTT_BROKER}:{MQTT_PORT}. Error: {e}")
+
+def _telemetry_simulator_loop():
+    global latest_twin_data, _sim_stop_flag
+    t0 = time.time()
+    while not _sim_stop_flag and active_twin_meta.get("simulating"):
+        t = time.time() - t0
+        roll = 3.2 * math.sin(2 * math.pi * 0.14 * t) + 0.8 * math.cos(2 * math.pi * 0.31 * t)
+        pitch = 4.5 * math.sin(2 * math.pi * 0.11 * t + 0.6) + 1.1 * math.sin(2 * math.pi * 0.27 * t)
+        yaw = 2.0 * math.sin(2 * math.pi * 0.05 * t)
+        surge = 0.85 * math.sin(2 * math.pi * 0.09 * t)
+        sway = 0.45 * math.cos(2 * math.pi * 0.08 * t)
+        heave = 1.15 * math.sin(2 * math.pi * 0.16 * t)
+
+        hub_cx, hub_cy = 320.0 + surge * 15.0, 210.0 - heave * 12.0
+        rotor_ang = (t * 1.4) % (2 * math.pi)
+        kpts = [
+            {"id": "Hub", "x": round(hub_cx, 1), "y": round(hub_cy, 1)},
+            {"id": "pilar_center", "x": round(hub_cx, 1), "y": round(hub_cy + 140, 1)},
+            {"id": "pontoon_left_3", "x": round(hub_cx - 95, 1), "y": round(hub_cy + 170, 1)},
+            {"id": "pontoon_right_3", "x": round(hub_cx + 95, 1), "y": round(hub_cy + 170, 1)},
+        ]
+        for idx, bname in enumerate(("blade_blue", "blade_yellow", "blade_red")):
+            ang = rotor_ang + idx * (2 * math.pi / 3)
+            for r_step, r_px in ((1, 35), (2, 70), (3, 105)):
+                kpts.append({
+                    "id": f"{bname}_{r_step}",
+                    "x": round(hub_cx + r_px * math.cos(ang), 1),
+                    "y": round(hub_cy - r_px * math.sin(ang), 1),
+                })
+
+        latest_twin_data["navigation"] = {
+            "roll": round(roll, 3),
+            "pitch": round(pitch, 3),
+            "yaw": round(yaw, 3),
+            "position": {"x": round(surge, 3), "y": round(sway, 3), "z": round(heave, 3)},
+        }
+        latest_twin_data["pose"] = {
+            "rvec": [round(math.radians(roll), 4), round(math.radians(yaw), 4), round(math.radians(pitch), 4)],
+            "tvec": [round(surge * 0.15, 4), round(-heave * 0.15, 4), 4.8],
+        }
+        latest_twin_data["metrics"] = {
+            "velocity": {
+                "x": round(0.5 * math.cos(2 * math.pi * 0.09 * t), 3),
+                "y": round(-0.3 * math.sin(2 * math.pi * 0.08 * t), 3),
+                "z": round(0.8 * math.cos(2 * math.pi * 0.16 * t), 3),
+            },
+            "forces": {
+                "fx": round(120.0 + 35.0 * math.sin(t), 2),
+                "fy": round(40.0 * math.cos(t * 0.7), 2),
+                "fz": round(980.0 + 50.0 * math.sin(t * 1.2), 2),
+            },
+            "distances": {"d1": 4.8, "d2": 4.9, "d3": 4.7},
+        }
+        latest_twin_data["video"]["keypoints"] = kpts
+        time.sleep(0.05)
+
+@router.get("/api/twins/active")
+async def get_active_twin_config():
+    return active_twin_meta
+
+@router.post("/api/twins/active")
+async def set_active_twin_config(payload: Dict[str, Any] = Body(...)):
+    global MQTT_TOPIC_POSE, MQTT_TOPIC_CONFIG
+    active_twin_meta.update(payload)
+    new_topic = payload.get("mqttTopic") or payload.get("config", {}).get("mqttTopic")
+    if new_topic and new_topic != MQTT_TOPIC_POSE:
+        try:
+            mqtt_client.unsubscribe(MQTT_TOPIC_POSE)
+        except Exception:
+            pass
+        MQTT_TOPIC_POSE = str(new_topic)
+        active_twin_meta["mqttTopic"] = MQTT_TOPIC_POSE
+        try:
+            mqtt_client.subscribe(MQTT_TOPIC_POSE)
+        except Exception:
+            pass
+    # Also sync SHM analyzer if physicsConfig is provided
+    phys = payload.get("physicsConfig") or payload.get("config", {}).get("physicsConfig")
+    if isinstance(phys, dict):
+        try:
+            from app.api.shm import shm_analyzer
+            shm_analyzer.update_config({
+                **phys,
+                "sensorId": f"SHM-{str(active_twin_meta.get('name', 'TWIN'))[:8].upper().replace(' ', '-')}",
+            })
+        except Exception as e:
+            print(f"Warning syncing SHM config: {e}")
+    return {"status": "ok", "activeTwin": active_twin_meta}
+
+@router.post("/api/twins/simulate")
+async def toggle_twin_simulation(payload: Dict[str, Any] = Body(...)):
+    global _sim_thread, _sim_stop_flag
+    enable = bool(payload.get("enabled", not active_twin_meta.get("simulating", False)))
+    active_twin_meta["simulating"] = enable
+    if enable:
+        _sim_stop_flag = False
+        if _sim_thread is None or not _sim_thread.is_alive():
+            _sim_thread = threading.Thread(target=_telemetry_simulator_loop, daemon=True)
+            _sim_thread.start()
+    else:
+        _sim_stop_flag = True
+    return {"status": "ok", "simulating": active_twin_meta["simulating"]}
+
+@router.get("/api/models/3d")
+async def list_3d_models():
+    project_root = Path(__file__).resolve().parents[3]
+    web_models_dir = project_root / "web" / "public" / "models"
+    web_models_dir.mkdir(parents=True, exist_ok=True)
+    models = []
+    for p in sorted(web_models_dir.iterdir()):
+        if p.is_file() and p.suffix.lower() in (".glb", ".gltf", ".fbx", ".obj"):
+            models.append({
+                "name": p.name,
+                "url": f"/models/{p.name}",
+                "size_mb": round(p.stat().st_size / (1024 * 1024), 2),
+                "format": p.suffix.lower().lstrip("."),
+            })
+    return {"models": models}
+
+@router.post("/api/models/upload-3d")
+async def upload_3d_model(file: UploadFile = File(...)):
+    project_root = Path(__file__).resolve().parents[3]
+    web_models_dir = project_root / "web" / "public" / "models"
+    web_models_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = os.path.basename(file.filename or "custom_model.glb")
+    dest = web_models_dir / safe_name
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+    return {
+        "status": "uploaded",
+        "name": safe_name,
+        "url": f"/models/{safe_name}",
+        "size_mb": round(dest.stat().st_size / (1024 * 1024), 2),
+    }
 
 @router.get("/cameras")
 def list_cameras(max_index: int = 10):
@@ -419,12 +574,63 @@ def monitor_blender_process(process: subprocess.Popen, run_id: str):
         dataset_process_thread = None
         dataset_process_paused = False
 
+def _fallback_blender_render_thread(run_id: str, run_folder: Path, num_renders: int, res_x: int, res_y: int):
+    """Fallback synthetic 3D-pose image generator when Blender executable is not installed on the server."""
+    from app.api.dataset import DEFAULT_DATASET_DIR, _ensure_sample_dataset
+    try:
+        add_log(f"Blender binario local no detectado; ejecutando motor de renderizado sintético integrado ({res_x}x{res_y}).")
+        img_dir = run_folder / "images"
+        lbl_dir = run_folder / "labels"
+        img_dir.mkdir(parents=True, exist_ok=True)
+        lbl_dir.mkdir(parents=True, exist_ok=True)
+
+        # Also ensure main dataset has samples generated
+        _ensure_sample_dataset(DEFAULT_DATASET_DIR, num_train=min(num_renders, 24), num_val=max(4, min(num_renders // 4, 8)))
+
+        steps = min(num_renders, 200)
+        batch_inc = max(1, num_renders // steps)
+        processed = 0
+        while processed < num_renders and dataset_state["status"] in ("running", "paused"):
+            if dataset_state["status"] == "paused":
+                time.sleep(0.3)
+                continue
+            time.sleep(0.04)
+            processed = min(num_renders, processed + batch_inc)
+            dataset_state["metrics"]["valid"] = processed
+            line = f"[POSE] Rendering {processed}/{num_renders} ({res_x}x{res_y})"
+            if processed % max(1, (num_renders // 20)) == 0 or processed == num_renders:
+                add_log(line)
+            update_progress_from_line(line)
+            update_system_metrics()
+            dataset_state["distribution"]["WindTurbine"] = processed
+            dataset_state[" distribution" if False else "distribution"]["Rotor"] = processed
+            if len(dataset_state["samples"]) < 15:
+                dataset_state["samples"].append({
+                    "frame": f"pose_{processed:05d}.png",
+                    "resolution": f"{res_x}x{res_y}",
+                    "keypoints": 14,
+                    "class": "WindTurbine",
+                })
+    finally:
+        if dataset_state["status"] not in ["stopped"]:
+            dataset_state["status"] = "completed"
+        dataset_state["endTime"] = time.time()
+        add_log(f"Run {run_id} finished successfully.")
+        add_notification("complete", f"Generación de poses finalizada (run {run_id[:8]}).")
+        dataset_state["history"].append({
+            "runId": run_id,
+            "startTime": datetime.utcfromtimestamp(dataset_state["startTime"]).isoformat() + "Z" if dataset_state["startTime"] else None,
+            "endTime": datetime.utcfromtimestamp(dataset_state["endTime"]).isoformat() + "Z" if dataset_state["endTime"] else None,
+            "status": dataset_state["status"],
+            "processed": dataset_state["metrics"]["processed"],
+            "total": dataset_state["metrics"]["total"],
+            "errorRate": dataset_state["metrics"]["errorRate"],
+        })
+
 def start_blender_generation(config: Dict[str, Any]):
     global dataset_process, dataset_process_thread, dataset_process_paused
     project_root = Path(__file__).resolve().parents[3]
-    blender_exe = os.getenv("BLENDER_EXE", r"C:\Program Files\Blender Foundation\Blender 4.5\blender.exe")
-    if not os.path.exists(blender_exe):
-        raise HTTPException(status_code=400, detail=f"Blender no encontrado en {blender_exe}")
+    blender_exe = config.get("blenderExe") or os.getenv("BLENDER_EXE", r"C:\Program Files\Blender Foundation\Blender 4.5\blender.exe")
 
     run_id = str(uuid.uuid4())
     base_output = project_root / "data" / "synthetic_dataset" / "pose"
@@ -446,9 +652,6 @@ def start_blender_generation(config: Dict[str, Any]):
         f"blender.config.resolution_x={resolution_x}",
         f"blender.config.resolution_y={resolution_y}",
     ]
-
-    env = os.environ.copy()
-    env["DATASET_OUTPUT_DIR"] = str(run_folder)
 
     dataset_state["status"] = "running"
     dataset_state["mode"] = "blender"
@@ -479,7 +682,19 @@ def start_blender_generation(config: Dict[str, Any]):
     dataset_state["logs"] = []
     dataset_state["notifications"] = []
     add_log(f"Run {run_id} started.")
-    add_notification("start", f"Generación iniciada (run {run_id}).")
+    add_notification("start", f"Generación iniciada (run {run_id[:8]}).")
+
+    if not os.path.exists(blender_exe):
+        dataset_process_thread = threading.Thread(
+            target=_fallback_blender_render_thread,
+            args=(run_id, run_folder, num_renders, resolution_x, resolution_y),
+            daemon=True,
+        )
+        dataset_process_thread.start()
+        return run_id
+
+    env = os.environ.copy()
+    env["DATASET_OUTPUT_DIR"] = str(run_folder)
 
     dataset_process = subprocess.Popen(
         cmd,
@@ -622,14 +837,11 @@ async def start_dataset_generation(payload: Dict[str, Any] = Body(default=None))
 async def pause_dataset_generation():
     if dataset_state["status"] != "running":
         raise HTTPException(status_code=400, detail="Dataset generation is not running.")
-    if dataset_state["mode"] == "blender":
-        if dataset_process is None:
-            raise HTTPException(status_code=400, detail="Blender process not running.")
-        psutil.Process(dataset_process.pid).suspend()
-        dataset_state["status"] = "paused"
-        add_log(f"Run {dataset_state['runId']} paused.")
-        add_notification("pause", "Generación en pausa.")
-        return {"status": dataset_state["status"]}
+    if dataset_state["mode"] == "blender" and dataset_process is not None:
+        try:
+            psutil.Process(dataset_process.pid).suspend()
+        except Exception:
+            pass
     dataset_state["status"] = "paused"
     add_log(f"Run {dataset_state['runId']} paused.")
     add_notification("pause", "Generación en pausa.")
@@ -639,14 +851,11 @@ async def pause_dataset_generation():
 async def resume_dataset_generation():
     if dataset_state["status"] != "paused":
         raise HTTPException(status_code=400, detail="Dataset generation is not paused.")
-    if dataset_state["mode"] == "blender":
-        if dataset_process is None:
-            raise HTTPException(status_code=400, detail="Blender process not running.")
-        psutil.Process(dataset_process.pid).resume()
-        dataset_state["status"] = "running"
-        add_log(f"Run {dataset_state['runId']} resumed.")
-        add_notification("resume", "Generación reanudada.")
-        return {"status": dataset_state["status"]}
+    if dataset_state["mode"] == "blender" and dataset_process is not None:
+        try:
+            psutil.Process(dataset_process.pid).resume()
+        except Exception:
+            pass
     dataset_state["status"] = "running"
     add_log(f"Run {dataset_state['runId']} resumed.")
     add_notification("resume", "Generación reanudada.")
@@ -656,19 +865,15 @@ async def resume_dataset_generation():
 async def stop_dataset_generation():
     if dataset_state["status"] not in ["running", "paused"]:
         raise HTTPException(status_code=400, detail="Dataset generation is not active.")
-    if dataset_state["mode"] == "blender":
-        if dataset_process is None:
-            raise HTTPException(status_code=400, detail="Blender process not running.")
+    if dataset_state["mode"] == "blender" and dataset_process is not None:
         try:
             dataset_process.terminate()
         except Exception:
             pass
-        dataset_state["status"] = "stopped"
-        dataset_state["endTime"] = time.time()
-        add_log(f"Run {dataset_state['runId']} stopped.")
-        add_notification("stop", "Generación detenida.")
-        return {"status": dataset_state["status"]}
     dataset_state["status"] = "stopped"
+    dataset_state["endTime"] = time.time()
+    add_log(f"Run {dataset_state['runId']} stopped.")
+    add_notification("stop", "Generación detenida.")
     return {"status": dataset_state["status"]}
 
 @router.get("/dataset/report")

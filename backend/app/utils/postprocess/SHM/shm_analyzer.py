@@ -28,6 +28,8 @@ class SHMAnalyzer:
         # Material Properties (Steel S355)
         self.youngs_modulus = 210e9  # Pa
         self.yield_strength = 355e6  # Pa
+        self.scale_factor = 100.0
+        self.sensor_id = "SHM-OC4-001"
         
         # S-N Curve Parameters (DNVGL-RP-C203)
         # log N = log a - m * log S
@@ -50,6 +52,42 @@ class SHMAnalyzer:
         # Kalman Filter for Stress Smoothing
         self.kalman_filter = KalmanFilter(process_variance=1e-5, measurement_variance=0.1, estimated_measurement_variance=0.1)
 
+    def update_config(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+        """Update SHM material and structural parameters dynamically from the web."""
+        if "youngsModulus" in cfg and cfg["youngsModulus"] is not None:
+            val = float(cfg["youngsModulus"])
+            self.youngs_modulus = val * 1e9 if val < 1e6 else val
+        if "yieldStrength" in cfg and cfg["yieldStrength"] is not None:
+            val = float(cfg["yieldStrength"])
+            self.yield_strength = val * 1e6 if val < 1e4 else val
+        if "scaleFactor" in cfg and cfg["scaleFactor"] is not None:
+            self.scale_factor = max(0.01, float(cfg["scaleFactor"]))
+        if "mSlope" in cfg and cfg["mSlope"] is not None:
+            self.m_slope = max(0.5, float(cfg["mSlope"]))
+        if "logA" in cfg and cfg["logA"] is not None:
+            self.log_a = float(cfg["logA"])
+        if "designLifeYears" in cfg and cfg["designLifeYears"] is not None:
+            self.weibull_scale = max(1.0, float(cfg["designLifeYears"]))
+        if "initialDamage" in cfg and cfg["initialDamage"] is not None:
+            self.set_damage_index(float(cfg["initialDamage"]))
+        if "sensorId" in cfg and cfg["sensorId"]:
+            self.sensor_id = str(cfg["sensorId"])
+        return self.get_config()
+
+    def get_config(self) -> Dict[str, Any]:
+        return {
+            "sensorId": self.sensor_id,
+            "youngsModulusGPa": round(self.youngs_modulus / 1e9, 2),
+            "yieldStrengthMPa": round(self.yield_strength / 1e6, 2),
+            "scaleFactor": self.scale_factor,
+            "mSlope": self.m_slope,
+            "logA": self.log_a,
+            "designLifeYears": self.weibull_scale,
+            "initialDamage": self.initial_damage,
+            "accumulatedDamage": round(self.accumulated_damage, 6),
+            "cycleCount": self.cycle_count,
+        }
+
     def process_sensor_data(self, telemetry: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process incoming telemetry data to update SHM state.
@@ -67,11 +105,10 @@ class SHMAnalyzer:
         tilt_angle = math.sqrt(pitch_rad**2 + roll_rad**2)
         
         # Mock stress calculation (MPa) based on tilt for 1:100 Scale Model
-        # Scale Factor: lambda = 100
-        # Stress scales as 1/lambda: sigma_m = sigma_p / 100
-        # Target Real Stress: 20-200 MPa -> Model Stress: 0.2-2.0 MPa
+        # Scale Factor: lambda = self.scale_factor
+        # Stress scales as 1/lambda: sigma_m = sigma_p / lambda
         
-        SCALE_FACTOR = 100.0
+        SCALE_FACTOR = self.scale_factor
 
         # Convert degrees to radians if necessary
         # Assuming input pitch/roll might be in degrees if values are large > 1.0
@@ -142,7 +179,7 @@ class SHMAnalyzer:
 
         return {
             "timestamp": current_time.isoformat(),
-            "sensor_id": "SHM-OC4-001",
+            "sensor_id": self.sensor_id,
             "metrics": {
                 "current_stress_mpa": round(current_stress_mpa, 2),
                 "damage_index": round(damage_index, 6),

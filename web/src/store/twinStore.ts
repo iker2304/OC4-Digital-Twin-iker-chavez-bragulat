@@ -1,9 +1,17 @@
 import { create } from 'zustand';
 import type { TwinConfigUpdate, TwinState } from '../types';
-import { StructuralEngine, type StructuralAnalysisResult, type EnvironmentalConditions, type PlatformState } from '../physics/StructuralEngine';
+import { API_BASE_URL, WS_BASE_URL } from '../config/api';
+import {
+  StructuralEngine,
+  DEFAULT_PHYSICS_CONFIG,
+  type PhysicsConfig,
+  type StructuralAnalysisResult,
+  type EnvironmentalConditions,
+  type PlatformState
+} from '../physics/StructuralEngine';
 
 // Initialize Physics Engine
-const physicsEngine = new StructuralEngine();
+export const physicsEngine = new StructuralEngine();
 
 // Debounce helper for stream value pushes (avoid flooding backend on every WS message)
 let _streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -16,7 +24,7 @@ function scheduleStreamFlush() {
     const batch = _pendingStreamValues;
     _pendingStreamValues = {};
     Object.entries(batch).forEach(([id, payload]) => {
-      fetch(`http://localhost:8080/persist/stream-values/${id}`, {
+      fetch(`${API_BASE_URL}/persist/stream-values/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -25,38 +33,45 @@ function scheduleStreamFlush() {
   }, 1000);
 }
 
-// Default Environmental Conditions (can be updated from weather API)
+// Default Environmental Conditions (can be updated from weather API or active profile)
 const DEFAULT_ENV: EnvironmentalConditions = {
-    windSpeed: 12, // m/s (Rated wind speed for NREL 5MW)
-    waveHeight: 2.5, // m
-    currentSpeed: 0.5 // m/s
+  windSpeed: 12, // m/s (Rated wind speed for NREL 5MW)
+  waveHeight: 2.5, // m
+  currentSpeed: 0.5 // m/s
 };
 
 interface StructuralHistory {
-    timestamp: number;
-    mooringTension: number; // Total horizontal force or max line tension
-    towerStress: number; // Max stress MPa
-    fatigueLife: number; // % used
+  timestamp: number;
+  mooringTension: number; // Total horizontal force or max line tension
+  towerStress: number; // Max stress MPa
+  fatigueLife: number; // % used
 }
 
 interface TwinStore extends TwinState {
   isConnected: boolean;
+  isSimulating: boolean;
   connect: () => void;
   disconnect: () => void;
+  toggleSimulation: (enable?: boolean) => Promise<void>;
   setTwinData: (data: Partial<TwinState>) => void;
   updateConfig: (config: TwinConfigUpdate) => void;
   cameraSource: number | string;
   setCameraSource: (source: number | string) => void;
   revertCameraSource: (source: number | string) => void;
-  
+
   // Environmental State
   envConditions: EnvironmentalConditions;
   setEnvConditions: (env: Partial<EnvironmentalConditions>) => void;
 
+  // Physics Config State
+  physicsConfig: PhysicsConfig;
+  updatePhysicsConfig: (updates: Partial<PhysicsConfig>) => void;
+  resetStructuralDamage: () => void;
+
   // Structural Analysis State
   structural: StructuralAnalysisResult | null;
   structuralHistory: StructuralHistory[];
-  
+
   history: {
     roll: { timestamp: number; value: number }[];
     pitch: { timestamp: number; value: number }[];
@@ -92,12 +107,14 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
     overlayData: {},
   },
   isConnected: false,
+  isSimulating: false,
   cameraSource: 0,
-  
+
   envConditions: DEFAULT_ENV,
+  physicsConfig: DEFAULT_PHYSICS_CONFIG,
   structural: null,
   structuralHistory: [],
-  
+
   history: {
     roll: [],
     pitch: [],
@@ -107,9 +124,53 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
     z: [],
   },
 
-  setEnvConditions: (env) => set((state) => ({ 
-      envConditions: { ...state.envConditions, ...env } 
+  setEnvConditions: (env) => set((state) => ({
+    envConditions: { ...state.envConditions, ...env }
   })),
+
+  updatePhysicsConfig: (updates) => {
+    physicsEngine.setConfig(updates);
+    const updated = physicsEngine.getConfig();
+    set({ physicsConfig: updated });
+    // Also sync to backend SHM analyzer
+    fetch(`${API_BASE_URL}/shm/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        youngsModulus: updated.youngsModulus * 1e9,
+        yieldStrength: updated.yieldStrength * 1e6,
+        scaleFactor: updated.scaleFactor,
+        mSlope: updated.parisExponentM,
+        designLifeYears: updated.designLifeYears,
+        initialDamage: updated.initialDamage,
+      }),
+    }).catch(() => {});
+  },
+
+  resetStructuralDamage: () => {
+    physicsEngine.resetDamage();
+    set({ structuralHistory: [] });
+  },
+
+  toggleSimulation: async (enable) => {
+    const nextState = enable !== undefined ? enable : !get().isSimulating;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/twins/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextState, frequencyHz: 10.0 }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set({ isSimulating: Boolean(data.simulating) });
+        if (data.simulating && !get().isConnected) {
+          get().connect();
+        }
+      }
+    } catch {
+      set({ isSimulating: nextState });
+    }
+  },
 
   connect: () => {
     if (socket) return;
@@ -118,8 +179,18 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
-    
-    socket = new WebSocket('ws://localhost:8080/ws/realtime');
+
+    // Check backend simulation status on connect
+    fetch(`${API_BASE_URL}/api/twins/active`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && typeof d.simulating === 'boolean') {
+          set({ isSimulating: d.simulating });
+        }
+      })
+      .catch(() => {});
+
+    socket = new WebSocket(`${WS_BASE_URL}/ws/realtime`);
 
     socket.onopen = () => {
       set({ isConnected: true });
@@ -129,16 +200,16 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
       try {
         const data = JSON.parse(event.data);
         const now = Date.now();
-        
+
         // Prepare State for Physics Engine
         const currentEnv = get().envConditions;
         const platformState: PlatformState = {
-            surge: Number(data.navigation?.position?.x) || 0,
-            sway: Number(data.navigation?.position?.y) || 0, // Note: standard coord mapping check needed
-            heave: Number(data.navigation?.position?.z) || 0,
-            roll: Number(data.navigation?.roll) || 0,
-            pitch: Number(data.navigation?.pitch) || 0,
-            yaw: Number(data.navigation?.yaw) || 0
+          surge: Number(data.navigation?.position?.x) || 0,
+          sway: Number(data.navigation?.position?.y) || 0,
+          heave: Number(data.navigation?.position?.z) || 0,
+          roll: Number(data.navigation?.roll) || 0,
+          pitch: Number(data.navigation?.pitch) || 0,
+          yaw: Number(data.navigation?.yaw) || 0
         };
 
         // Run Structural Analysis
@@ -157,10 +228,10 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
 
           structural: analysisResult,
           structuralHistory: [...state.structuralHistory, {
-              timestamp: now,
-              mooringTension: mooring.totalHorizontalForce / 1000, // kN
-              towerStress: tower.maxStress,
-              fatigueLife: shm.fatigueLifeUsed
+            timestamp: now,
+            mooringTension: mooring.totalHorizontalForce / 1000, // kN
+            towerStress: tower.maxStress,
+            fatigueLife: shm.fatigueLifeUsed
           }].slice(-500),
 
           history: {
@@ -187,7 +258,6 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
           updatedAt: new Date().toISOString()
         };
 
-        // Push to backend stream values (debounced — at most once per second)
         const updatedAt = streamData.updatedAt;
         Object.entries({
           'twin.surge': streamData.surge,
@@ -239,26 +309,15 @@ export const useTwinStore = create<TwinStore>((set, get) => ({
   },
   setCameraSource: (source) => {
     set({ cameraSource: source });
-    // Primary path: POST directly to the MJPEG detection server.
-    // This is the most reliable path — it works even if the backend
-    // WebSocket or MQTT are not running.
     if (typeof source === 'number') {
       fetch('http://127.0.0.1:8001/switch_source', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source }),
-      }).catch(() => {
-        // Server might not be running yet — ignore silently;
-        // the URL ?source= param will still trigger it when the
-        // browser loads the new MJPEG URL.
-      });
+      }).catch(() => {});
     }
-    // Secondary path: notify via WebSocket → MQTT so the backend
-    // pipeline_runner also knows.
     get().updateConfig({ camera_source: source });
   },
-  // Updates the local store only — used when the backend reports a failed switch
-  // and has already reverted to a previous source. No POST is sent to avoid loops.
   revertCameraSource: (source) => {
     set({ cameraSource: source });
   },

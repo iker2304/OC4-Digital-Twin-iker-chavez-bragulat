@@ -4,12 +4,13 @@ import { Navigation, Plus, Save, Edit2, Trash2 } from 'lucide-react';
 import { useMap, useMapEvents, Marker, Popup, Circle, CircleMarker } from 'react-leaflet';
 
 import { useTwinStore } from '../store/twinStore';
+import { useProfileStore } from '../store/profileStore';
 import SidePanel from '../components/map/SidePanel';
 import DriftTrail from '../components/map/DriftTrail';
 import type { POI, WeatherData } from '../types';
 
-// Target Coordinates: 41°21'46.8"N 2°11'12.7"E -> 41.363000, 2.1868611
-const ORIGIN_COORDS: [number, number] = [41.363000, 2.1868611];
+// Default Target Coordinates: 41°21'46.8"N 2°11'12.7"E -> 41.363000, 2.1868611
+const DEFAULT_ORIGIN_COORDS: [number, number] = [41.363000, 2.1868611];
 // Amplification factor to make movement visible on map (exaggerated for demo)
 const MOVEMENT_SCALE = 0.01;
 
@@ -18,7 +19,6 @@ const MapResizer = ({ activePoi }: { activePoi: string | null }) => {
   const map = useMap();
 
   useEffect(() => {
-    // Wait for the transition (700ms) to finish, then invalidate size once
     const timer = setTimeout(() => map.invalidateSize(), 750);
     return () => clearTimeout(timer);
   }, [activePoi, map]);
@@ -26,22 +26,21 @@ const MapResizer = ({ activePoi }: { activePoi: string | null }) => {
   return null;
 };
 
-// Custom hook for weather data with 5s update interval
-const useWeather = () => {
+// Custom hook for weather data with 5m update interval
+const useWeather = (coords: [number, number]) => {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const { setEnvConditions } = useTwinStore();
 
   useEffect(() => {
     const fetchWeather = async () => {
       try {
-        // Fetch from Open-Meteo
         const response = await fetch(
-          `https://marine-api.open-meteo.com/v1/marine?latitude=${ORIGIN_COORDS[0]}&longitude=${ORIGIN_COORDS[1]}&current=wave_height,wave_direction,wave_period&hourly=wave_height&daily=wave_height_max`
+          `https://marine-api.open-meteo.com/v1/marine?latitude=${coords[0]}&longitude=${coords[1]}&current=wave_height,wave_direction,wave_period&hourly=wave_height&daily=wave_height_max`
         );
         const marineData = await response.json();
 
         const responseWeather = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${ORIGIN_COORDS[0]}&longitude=${ORIGIN_COORDS[1]}&current=temperature_2m,wind_speed_10m,wind_direction_10m,visibility`
+          `https://api.open-meteo.com/v1/forecast?latitude=${coords[0]}&longitude=${coords[1]}&current=temperature_2m,wind_speed_10m,wind_direction_10m,visibility`
         );
         const weatherData = await responseWeather.json();
 
@@ -57,11 +56,10 @@ const useWeather = () => {
 
         setWeather(newWeather);
 
-        // Update Physics Engine Environment
         setEnvConditions({
-          windSpeed: newWeather.windSpeed ? newWeather.windSpeed / 3.6 : 12, // Convert km/h to m/s
+          windSpeed: newWeather.windSpeed ? newWeather.windSpeed / 3.6 : 12,
           waveHeight: newWeather.waveHeight || 2.5,
-          currentSpeed: 0.5 // Default or fetch if available
+          currentSpeed: 0.5
         });
 
       } catch (e) {
@@ -70,9 +68,9 @@ const useWeather = () => {
     };
 
     fetchWeather();
-    const interval = setInterval(fetchWeather, 300000); // 5 minutes instead of 5 seconds
+    const interval = setInterval(fetchWeather, 300000);
     return () => clearInterval(interval);
-  }, [setEnvConditions]);
+  }, [setEnvConditions, coords[0], coords[1]]);
 
   return weather;
 };
@@ -90,9 +88,10 @@ function MapEvents({ isEditing, onMapClick }: { isEditing: boolean, onMapClick: 
 }
 
 export default function MapPage() {
-  // Only subscribe to history and navigation here. Structural data is in SidePanel.
   const { history, navigation, connect, isConnected } = useTwinStore();
-  const weather = useWeather();
+  const activeProfile = useProfileStore(s => s.getActiveProfile());
+  const originCoords: [number, number] = activeProfile?.config?.coordinates || DEFAULT_ORIGIN_COORDS;
+  const weather = useWeather(originCoords);
 
   useEffect(() => {
     connect();
@@ -104,9 +103,9 @@ export default function MapPage() {
   const [pois, setPois] = useState<POI[]>([
     {
       id: 'oc4-platform',
-      position: [41.363000, 2.1868611], // Exact mathematical translation
-      title: 'OC4 Platform',
-      description: 'Offshore Floating Wind Turbine Prototype',
+      position: originCoords,
+      title: activeProfile?.name || 'OC4 Platform',
+      description: activeProfile?.description || 'Offshore Floating Wind Turbine Prototype',
       isRemovable: false
     }
   ]);
@@ -115,20 +114,20 @@ export default function MapPage() {
 
   const currentOc4Position = useMemo<[number, number]>(() => {
     const latOffset = (navigation.position.x * MOVEMENT_SCALE) / 111111;
-    const lonOffset = (navigation.position.z * MOVEMENT_SCALE) / (111111 * Math.cos(ORIGIN_COORDS[0] * Math.PI / 180));
+    const lonOffset = (navigation.position.z * MOVEMENT_SCALE) / (111111 * Math.cos(originCoords[0] * Math.PI / 180));
 
-    const newPos: [number, number] = [ORIGIN_COORDS[0] + latOffset, ORIGIN_COORDS[1] + lonOffset];
+    const newPos: [number, number] = [originCoords[0] + latOffset, originCoords[1] + lonOffset];
     return newPos;
-  }, [navigation.position]);
+  }, [navigation.position, originCoords]);
 
   const driftPath = useMemo(() => {
     return history.x.slice(-100).map((pos, i) => {
       const zVal = history.z[history.z.length - history.x.length + i]?.value || 0;
       const latOffset = (pos.value * MOVEMENT_SCALE) / 111111;
-      const lonOffset = (zVal * MOVEMENT_SCALE) / (111111 * Math.cos(ORIGIN_COORDS[0] * Math.PI / 180));
-      return [ORIGIN_COORDS[0] + latOffset, ORIGIN_COORDS[1] + lonOffset] as [number, number];
+      const lonOffset = (zVal * MOVEMENT_SCALE) / (111111 * Math.cos(originCoords[0] * Math.PI / 180));
+      return [originCoords[0] + latOffset, originCoords[1] + lonOffset] as [number, number];
     });
-  }, [history.x, history.z]);
+  }, [history.x, history.z, originCoords]);
 
   const handlePoiClick = (id: string) => {
     setActivePoi(id === activePoi ? null : id);
@@ -171,7 +170,7 @@ export default function MapPage() {
       <div className="h-12 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center px-4 z-[1200] shrink-0 shadow-sm">
         <h1 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <Navigation className="w-4 h-4 text-blue-600" />
-          OC4 Digital Twin Map
+          <span>{activeProfile ? `${activeProfile.icon} ${activeProfile.name} — ${activeProfile.config.locationName}` : 'Digital Twin Geospatial Map'}</span>
         </h1>
         <div className="ml-auto flex items-center gap-3 text-xs text-gray-500">
           <span>{isConnected ? "System Online" : "System Offline"}</span>
@@ -194,7 +193,7 @@ export default function MapPage() {
 
           <InteractiveMap
             pois={[]}
-            center={activePoi === 'oc4-platform' ? currentOc4Position : ORIGIN_COORDS}
+            center={activePoi === 'oc4-platform' ? currentOc4Position : originCoords}
             zoom={activePoi === 'oc4-platform' ? 17 : 14}
           >
             <MapResizer activePoi={activePoi} />
@@ -233,8 +232,8 @@ export default function MapPage() {
             >
               <Popup>
                 <div className="p-1">
-                  <h3 className="font-bold text-sm">OC4 Platform (Live)</h3>
-                  <p className="text-xs text-gray-600">Real-time Position</p>
+                  <h3 className="font-bold text-sm">{activeProfile?.name || 'OC4 Platform'} (Live)</h3>
+                  <p className="text-xs text-gray-600">{activeProfile?.config?.locationName || 'Real-time Position'}</p>
                 </div>
               </Popup>
             </Marker>

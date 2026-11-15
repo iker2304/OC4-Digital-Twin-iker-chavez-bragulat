@@ -13,6 +13,7 @@ import {
   type Connection,
 } from '@xyflow/react';
 import { useDashboardStore } from './dashboardStore';
+import { API_BASE_URL, WS_BASE_URL } from '../config/api';
 
 // node category and template Types 
 export type NodeCategory =
@@ -107,7 +108,7 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     outputs: [
       { id: 'data', label: 'Data', dataType: 'json' },
     ],
-    defaultConfig: { url: 'ws://localhost:8080/ws/realtime', reconnect: true },
+    defaultConfig: { url: `${WS_BASE_URL}/ws/realtime`, reconnect: true },
   },
   {
     type: 'timer_trigger',
@@ -611,7 +612,7 @@ function getAllFlows(): Flow[] {
 
 function saveAllFlows(flows: Flow[]) {
   localStorage.setItem(FLOWS_KEY, JSON.stringify(flows));
-  fetch('http://localhost:8080/persist/flows', {
+  fetch(`${API_BASE_URL}/persist/flows`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(flows),
@@ -627,7 +628,7 @@ export const useNodeEditorStore = create<NodeEditorStore>((set, get) => ({
 
   loadFlows: async (userId: string, profileId: string) => {
     try {
-      const res = await fetch('http://localhost:8080/persist/flows');
+      const res = await fetch(`${API_BASE_URL}/persist/flows`);
       if (res.ok) {
         const backendFlows = await res.json();
         if (backendFlows && Array.isArray(backendFlows) && backendFlows.length > 0) {
@@ -814,7 +815,7 @@ export const useNodeEditorStore = create<NodeEditorStore>((set, get) => ({
     const node = get().nodes.find(n => n.id === nodeId);
     if (node?.data?.type === 'fem_sim') {
       const merged = { ...(node.data.config as Record<string, unknown>), ...config };
-      fetch('http://localhost:8080/api/fem/sim-params', {
+      fetch(`${API_BASE_URL}/api/fem/sim-params`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -879,7 +880,7 @@ export const useNodeEditorStore = create<NodeEditorStore>((set, get) => ({
       ),
     }));
 
-    fetch('http://localhost:8080/api/flow/deploy', {
+    fetch(`${API_BASE_URL}/api/flow/deploy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -896,7 +897,7 @@ export const useNodeEditorStore = create<NodeEditorStore>((set, get) => ({
     .then(() => {})
     .catch(err => console.error('[NodeEditorStore] Flow deploy error:', err));
 
-    fetch('http://localhost:8080/persist/deployed_flows', {
+    fetch(`${API_BASE_URL}/persist/deployed_flows`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(all.filter(f => f.deployed)),

@@ -210,6 +210,25 @@ export default function LoginPage() {
                                     </>
                                 )}
                             </button>
+
+                            <button
+                                type="button"
+                                disabled={loading}
+                                onClick={async () => {
+                                    setLoading(true);
+                                    try {
+                                        const ok = await login('admin', 'admin123');
+                                        if (!ok) {
+                                            await register('admin', 'admin@digitaltwin.local', 'admin123', 'Ingeniero Digital Twin');
+                                        }
+                                    } finally {
+                                        setLoading(false);
+                                    }
+                                }}
+                                className="w-full py-2.5 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2"
+                            >
+                                <Zap className="w-3.5 h-3.5" /> Acceso Rápido Demo (Multi-Twin Studio)
+                            </button>
                         </form>
 
                         <div className="mt-6 text-center">
@@ -227,7 +246,7 @@ export default function LoginPage() {
                     </div>
 
                     <p className="text-center text-gray-600 text-xs mt-6">
-                        OC4 Digital Twin Platform — CIMNE / UPC
+                        Multi-Asset Digital Twin Platform — CIMNE / UPC
                     </p>
                 </div>
             </div>

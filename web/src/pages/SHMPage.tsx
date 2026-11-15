@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react';
-import { Activity, AlertTriangle, CheckCircle, Clock, Anchor, TrendingUp, FileText, ArrowLeft, Edit2 } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle, Clock, Anchor, TrendingUp, FileText, ArrowLeft, Edit2, Sliders, RotateCcw } from 'lucide-react';
 import { useTwinStore } from '../store/twinStore';
+import { useProfileStore } from '../store/profileStore';
 import type { SHMResponse } from '../types';
 import type { FatigueDashboardConfig } from '../components/charts/AdvancedFatigueDashboard';
 import StructuralTrendsChart from '../components/charts/StructuralTrendsChart';
@@ -9,10 +10,21 @@ import { Link } from 'react-router-dom';
 const AdvancedFatigueDashboard = lazy(() => import('../components/charts/AdvancedFatigueDashboard'));
 
 export default function SHMPage() {
-    const { isConnected, structural, structuralHistory } = useTwinStore();
+    const {
+        isConnected,
+        structural,
+        structuralHistory,
+        physicsConfig,
+        updatePhysicsConfig,
+        envConditions,
+        setEnvConditions,
+        resetStructuralDamage
+    } = useTwinStore();
+    const activeProfile = useProfileStore(s => s.getActiveProfile());
     const [shmData, setShmData] = useState<SHMResponse | null>(null);
     const [throttledHistory, setThrottledHistory] = useState(structuralHistory);
     const [fatigueConfig, setFatigueConfig] = useState<FatigueDashboardConfig | undefined>(undefined);
+    const [showPhysicsPanel, setShowPhysicsPanel] = useState(false);
     const latestStructuralHistoryRef = useRef(structuralHistory);
 
     useEffect(() => {
@@ -140,19 +152,21 @@ export default function SHMPage() {
 
         const report = {
             timestamp: new Date().toISOString(),
-            title: "OC4 Structural Analysis Report",
-            platform: "OC4-DeepCwind Semi-submersible",
+            title: `${activeProfile?.name || 'Digital Twin'} — Structural Analysis Report`,
+            platform: activeProfile?.name || "OC4-DeepCwind Semi-submersible",
+            assetType: activeProfile?.assetType || "offshore_wind",
+            physicsConfig,
             status: {
                 connected: isConnected,
             },
             structuralAnalysis: {
                 mooring: structural ? {
-                    standard: "API RP 2SK",
+                    standard: "API RP 2SK / Stiffness Model",
                     totalTension: structural.mooring.totalHorizontalForce,
                     lines: structural.mooring.lines
                 } : "N/A",
                 tower: structural ? {
-                    standard: "ISO 19901-3",
+                    standard: "ISO 19901-3 / Beam FEA",
                     maxStressMPa: structural.tower.maxStress,
                     utilization: structural.tower.utilization,
                     baseMoment: structural.tower.baseMoment
@@ -171,7 +185,7 @@ export default function SHMPage() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `OC4_Structural_Report_${new Date().getTime()}.json`;
+        a.download = `${(activeProfile?.name || 'Twin').replace(/\s+/g, '_')}_SHM_Report_${new Date().getTime()}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -180,28 +194,126 @@ export default function SHMPage() {
 
     return (
         <div className="p-8 h-full overflow-y-auto bg-gray-50 dark:bg-slate-900">
-            <div className="flex justify-between items-start mb-8 border-b pb-4 border-gray-100 dark:border-slate-800">
+            <div className="flex flex-wrap justify-between items-start gap-4 mb-6 border-b pb-4 border-gray-100 dark:border-slate-800">
                 <div>
                     <h2 className="text-3xl font-bold flex items-center gap-3 text-gray-900 dark:text-white">
                         <Activity className="w-8 h-8 text-blue-600" />
-                        OC4 Structural Health Monitoring
+                        <span>{activeProfile ? `${activeProfile.icon} ${activeProfile.name} — SHM` : 'Structural Health Monitoring'}</span>
                     </h2>
                     <p className="text-gray-500 mt-2 font-mono text-sm">
-                        ID: {shmData?.sensor_id || 'UNKNOWN'} | Last Update: {shmData ? new Date(shmData.timestamp).toLocaleTimeString() : 'N/A'}
+                        ID: {shmData?.sensor_id || 'UNKNOWN'} | Escala 1:{physicsConfig.scaleFactor} | Acero Fy={physicsConfig.yieldStrength} MPa | Última act.: {shmData ? new Date(shmData.timestamp).toLocaleTimeString() : 'N/A'}
                     </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        onClick={() => setShowPhysicsPanel(!showPhysicsPanel)}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+                    >
+                        <Sliders className="w-4 h-4 text-amber-400" /> Parámetros Físicos y Cargas
+                    </button>
+                    <button
+                        onClick={resetStructuralDamage}
+                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg flex items-center gap-1.5 text-sm font-medium transition-colors"
+                        title="Reiniciar acumulador de daño por fatiga"
+                    >
+                        <RotateCcw className="w-4 h-4" /> Reset Daño
+                    </button>
                     <button
                         onClick={generateReport}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
                     >
-                        <FileText className="w-4 h-4" /> Generate Report
+                        <FileText className="w-4 h-4" /> Exportar Reporte
                     </button>
                     <Link to="/map" className="px-4 py-2 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors">
-                        <ArrowLeft className="w-4 h-4" /> Back to Map
+                        <ArrowLeft className="w-4 h-4" /> Mapa
                     </Link>
                 </div>
             </div>
+
+            {/* Interactive Physics & Environmental Load Configurator */}
+            {showPhysicsPanel && (
+                <div className="mb-8 bg-slate-800/90 border border-slate-700 rounded-2xl p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                            <Sliders className="w-4 h-4 text-amber-400" />
+                            Ajuste en Tiempo Real del Motor Físico y Cargas Ambientales
+                        </h3>
+                        <span className="text-xs text-slate-400">
+                            Sincronizado con StructuralEngine.ts y Python SHM Analyzer
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
+                        <div>
+                            <label className="block text-slate-400 mb-1">Viento (m/s)</label>
+                            <input
+                                type="number"
+                                step="0.5"
+                                value={envConditions.windSpeed}
+                                onChange={e => setEnvConditions({ windSpeed: Number(e.target.value) })}
+                                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-slate-400 mb-1">Altura Ola Hs (m)</label>
+                            <input
+                                type="number"
+                                step="0.2"
+                                value={envConditions.waveHeight}
+                                onChange={e => setEnvConditions({ waveHeight: Number(e.target.value) })}
+                                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-slate-400 mb-1">Escala (λ)</label>
+                            <input
+                                type="number"
+                                value={physicsConfig.scaleFactor}
+                                onChange={e => updatePhysicsConfig({ scaleFactor: Number(e.target.value) })}
+                                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-slate-400 mb-1">Fy Acero (MPa)</label>
+                            <input
+                                type="number"
+                                value={physicsConfig.yieldStrength}
+                                onChange={e => updatePhysicsConfig({ yieldStrength: Number(e.target.value) })}
+                                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-slate-400 mb-1">Altura Torre (m)</label>
+                            <input
+                                type="number"
+                                step="0.05"
+                                value={physicsConfig.structureHeight}
+                                onChange={e => updatePhysicsConfig({ structureHeight: Number(e.target.value) })}
+                                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-slate-400 mb-1">Nº Líneas Amarre</label>
+                            <input
+                                type="number"
+                                min={1}
+                                max={12}
+                                value={physicsConfig.numMooringLines}
+                                onChange={e => updatePhysicsConfig({ numMooringLines: Number(e.target.value) })}
+                                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-slate-400 mb-1">Vida Diseño (años)</label>
+                            <input
+                                type="number"
+                                value={physicsConfig.designLifeYears}
+                                onChange={e => updatePhysicsConfig({ designLifeYears: Number(e.target.value) })}
+                                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* SHM Dashboard (Python Backend) */}
             <div className="mb-8">
