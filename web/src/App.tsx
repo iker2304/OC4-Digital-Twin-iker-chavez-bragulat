@@ -15,6 +15,7 @@ import ProfilesPage from './pages/ProfilesPage';
 import ProfileDetailPage from './pages/ProfileDetailPage';
 import FEMPage from './pages/FEMPage';
 import { TrainingPage } from './pages/TrainingPage';
+import MooringPage from './pages/MooringPage';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -60,6 +61,7 @@ function App() {
                 <Route path="/training" element={<TrainingPage />} />
                 <Route path="/dataset" element={<DatasetGeneration />} />
                 <Route path="/fem" element={<FEMPage />} />
+                <Route path="/mooring" element={<MooringPage />} />
                 <Route path="/grafana" element={<Grafana />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>

@@ -1,5 +1,5 @@
 import {
-  Activity, Box, Cpu, Signal, Waves, ShieldCheck, ArrowRight, Brain, Database, Users, Radio, Map, Boxes,
+  Activity, Anchor, Box, Cpu, Signal, Waves, ShieldCheck, ArrowRight, Brain, Database, Users, Radio, Map, Boxes,
 } from 'lucide-react';
 import { useTwinStore } from '../store/twinStore';
 import { useProfileStore } from '../store/profileStore';
@@ -45,6 +45,12 @@ export default function Home() {
       icon: Activity,
       path: '/shm',
       desc: 'Acumulación de fatiga, curvas S-N y vida útil remanente.',
+    },
+    {
+      title: 'Fondeo GNN+PINN',
+      icon: Anchor,
+      path: '/mooring',
+      desc: 'Predicción 3D de líneas de fondeo, tensiones, TDZ y arquitectura GNN+PINN.',
     },
     {
       title: 'Análisis FEM',

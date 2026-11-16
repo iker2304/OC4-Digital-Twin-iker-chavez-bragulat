@@ -1,0 +1,85 @@
+# ==============================================================================
+# OC4-DeepCwind Mooring Digital Twin - GNN + PINN Configuration
+# Reference: Robertson et al. (2014), NREL/TP-5000-60601
+# ==============================================================================
+
+platform:
+  name: "OC4-DeepCwind Semi-submersible"
+  num_lines: 3
+  # Azimuth angles [deg] in global XY plane (counter-clockwise from +X Surge)
+  # Line 1: 180 deg (upstream), Line 2: 60 deg, Line 3: 300 deg
+  line_angles_deg: [180.0, 60.0, 300.0]
+  water_depth_m: 200.0
+  fairlead_radius_m: 40.868
+  fairlead_depth_m: 14.0      # z_fairlead_0 = -14.0 m below SWL
+  anchor_radius_m: 837.6
+  anchor_depth_m: 200.0       # z_anchor = -200.0 m (seabed)
+
+line_properties:
+  unstretched_length_m: 835.5
+  diameter_m: 0.0766
+  mass_per_unit_length_kg_m: 113.35
+  submerged_mass_per_unit_length_kg_m: 108.63
+  axial_stiffness_N: 753.6e6        # EA [N]
+  minimum_breaking_load_N: 10.0e6   # MBL [N] (10 MN)
+  internal_damping_Ns: 5.0e4        # Structural axial damping c_int [N*s]
+  # T-N fatigue curve parameters (DNV-OS-E301 studless chain: N = K * (R)^(-m))
+  tn_curve_K: 6.0e3
+  tn_curve_m: 3.0
+
+hydrodynamics:
+  gravity_m_s2: 9.81
+  water_density_kg_m3: 1025.0
+  # Morison drag & added mass coefficients (normal / tangential)
+  cd_normal: 1.6
+  cd_tangential: 0.1
+  ca_normal: 1.0
+  ca_tangential: 0.0
+
+seabed:
+  vertical_stiffness_N_m2: 3.0e6
+  vertical_damping_Ns_m2: 1.0e4
+  friction_coeff: 0.3
+  penetration_smoothing_m: 0.25
+
+scale:
+  # Froude scale factor lambda = 100 for physical wave-basin / vision mockups.
+  # When input_is_model_scale is true:
+  #   positions_prototype = positions_model * froude_lambda
+  #   time_prototype      = time_model * sqrt(froude_lambda)
+  #   angles              = invariant
+  froude_lambda: 100.0
+  input_is_model_scale: true
+
+graph:
+  segments_per_line: 20       # N segments -> N+1 = 21 nodes per line (64 total nodes incl. platform)
+  include_platform_node: true
+  hard_bc: true               # Enforce exact anchor & fairlead boundary positions
+
+model:
+  hidden_dim: 128
+  num_mp_layers: 6
+  dropout: 0.05
+  continuous_pinn_hidden_dim: 128
+  continuous_pinn_layers: 4
+  continuous_pinn_fourier_freqs: 8
+
+loss_weights:
+  data_pos: 10.0
+  data_tension: 5.0
+  constitutive: 2.0
+  momentum_pde: 1.0
+  boundary_bc: 10.0
+  seabed_contact: 5.0
+  shm_class: 1.5
+  shm_health: 2.0
+
+training:
+  epochs: 40
+  batch_size: 16
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-5
+  num_synthetic_samples: 512
+  val_split: 0.15
+  seed: 42
+  checkpoint_dir: "utils/scripts/postprocess/Mooring_GNN_PINN/checkpoints"

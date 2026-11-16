@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   LayoutDashboard, Activity, Settings, Database, Map, Home, Users, LogOut, ChevronsUpDown, Brain, Plus,
-  Boxes, LineChart, PanelLeftClose, PanelLeftOpen, Moon, Sun, Check, Radio, type LucideIcon,
+  Boxes, LineChart, PanelLeftClose, PanelLeftOpen, Moon, Sun, Check, Radio, Anchor, type LucideIcon,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
@@ -38,6 +38,7 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
     label: 'Análisis',
     items: [
       { icon: Activity, label: 'SHM', path: '/shm' },
+      { icon: Anchor, label: 'Fondeo GNN+PINN', path: '/mooring' },
       { icon: Boxes, label: 'FEM', path: '/fem' },
       { icon: Map, label: 'Mapa', path: '/map' },
       { icon: LineChart, label: 'Grafana', path: '/grafana' },
